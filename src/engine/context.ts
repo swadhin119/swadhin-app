@@ -10,21 +10,34 @@ export const URLS_ENDPOINT = "https://raw.githubusercontent.com/Zenda-Cross/vega
 const HOUR = 3600e3;
 let urlsMem: { t: number; v: Record<string, { url?: string }> } | null = null;
 
-async function loadUrls(): Promise<Record<string, { url?: string }>> {
-  if (urlsMem && Date.now() - urlsMem.t < HOUR) return urlsMem.v;
-  try {
-    const r = await fetch(URLS_ENDPOINT);
-    if (!r.ok) throw new Error("urls.json " + r.status);
-    const v = await r.json();
-    urlsMem = { t: Date.now(), v };
-    await setJSON("urls.json", v);
-    return v;
-  } catch (e) {
-    const old = await getJSON<Record<string, { url?: string }> | null>("urls.json", null);
-    if (old) { urlsMem = { t: Date.now() - HOUR + 60e3, v: old }; return old; }
-    throw e;
+type Urls = Record<string, { url?: string }>;
+// provider ki apni posts.js bhi urls.json maangti hai (globalThis cache me): usse pehle se bhar do to wo network ka intezaar nahi karegi
+const seed = (v: Urls, ttl: number) => { try { (globalThis as any).__vegaProviderBaseUrlCache__ = { data: v, expiresAt: Date.now() + ttl }; } catch { /* ignore */ } };
+let refreshing: Promise<Urls> | null = null;
+function refreshUrls(): Promise<Urls> {
+  if (!refreshing) {
+    refreshing = (async () => {
+      const ac = new AbortController(); const id = setTimeout(() => ac.abort(), 10000);
+      try {
+        const r = await fetch(URLS_ENDPOINT, { signal: ac.signal });
+        if (!r.ok) throw new Error("urls.json " + r.status);
+        const v = (await r.json()) as Urls;
+        urlsMem = { t: Date.now(), v }; seed(v, HOUR);
+        await setJSON("urls2.json", { t: Date.now(), v });
+        return v;
+      } finally { clearTimeout(id); }
+    })().finally(() => { refreshing = null; });
   }
+  return refreshing;
 }
+async function loadUrls(): Promise<Urls> {
+  if (urlsMem && Date.now() - urlsMem.t < HOUR) return urlsMem.v;
+  const disk = urlsMem ? null : await getJSON<{ t: number; v: Urls } | null>("urls2.json", null);
+  if (disk?.v) { urlsMem = disk; seed(disk.v, 10 * 60e3); }
+  if (urlsMem) { refreshUrls().catch(() => {}); return urlsMem.v; } // purana turant, naya background me
+  return refreshUrls();
+}
+export async function primeUrls() { try { await loadUrls(); } catch { /* ignore */ } }
 
 export const commonHeaders: Record<string, string> = {
   "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',

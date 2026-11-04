@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, ToastAndroid, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,21 +7,45 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { C, R } from "../theme";
 import { getEpisodes, getMeta } from "../engine/engine";
-import type { LinkItem } from "../engine/types";
+import { findAltDetail, playableGroups } from "../engine/fallback";
+import { enqueue, useDownloads } from "../engine/downloads";
+import type { Info, LinkItem } from "../engine/types";
 import { getState, inWatchlist, itemKey, setSession, toggleWatchlist, useApp, type PlayItem } from "../state/store";
 import { useAsync } from "../lib/useAsync";
 import { Btn, Chip, ErrorBox, Loading } from "../components/ui";
 
 export default function Detail() {
-  const { provider, link, title: pTitle, image: pImage, resume } = useLocalSearchParams<{ provider: string; link: string; title: string; image: string; resume?: string }>();
+  const { provider: pProv, link: pLink, title: pTitle, image: pImage, resume } = useLocalSearchParams<{ provider: string; link: string; title: string; image: string; resume?: string }>();
   const insets = useSafeAreaInsets();
-  const meta = useAsync(() => getMeta(provider, link), [provider, link]);
-  const saved = useApp((s) => inWatchlist(s, provider, link));
-  const hist = useApp((s) => s.history[itemKey(provider, link)]);
+  const meta = useAsync(() => getMeta(pProv, pLink), [pProv, pLink]);
+  const saved = useApp((s) => inWatchlist(s, pProv, pLink));
   const [sel, setSel] = useState(0);
   const [more, setMore] = useState(false);
 
-  const info = meta.data;
+  // ---- ye provider na khule / links na ho: apne aap doosre provider me wahi title dhoondo ----
+  const [alt, setAlt] = useState<{ provider: string; link: string; info: Info; name: string } | null>(null);
+  const [altState, setAltState] = useState<"idle" | "searching" | "none">("idle");
+  const [locked, setLocked] = useState(false);
+  const altRun = useRef(false);
+  const primaryGroups = useMemo(() => playableGroups(meta.data), [meta.data]);
+  const primaryBad = !!meta.error || (!meta.loading && !!meta.data && primaryGroups.length === 0);
+  const searchTitle = pTitle || meta.data?.title || "";
+  const runAlt = useCallback(() => {
+    if (altRun.current || !searchTitle) return; altRun.current = true; setAltState("searching");
+    findAltDetail(searchTitle, pProv).then((r) => { if (r) setAlt(r); setAltState(r ? "idle" : "none"); }).catch(() => setAltState("none"));
+  }, [searchTitle, pProv]);
+  useEffect(() => { if (primaryBad) runAlt(); }, [primaryBad, runAlt]);
+  useEffect(() => { if (!meta.loading) return; const t = setTimeout(runAlt, 9000); return () => clearTimeout(t); }, [meta.loading, runAlt]); // 9s se zyada atke to parallel me doosra provider
+  useEffect(() => { if (alt && !locked && (primaryBad || meta.loading)) setLocked(true); }, [alt, locked, primaryBad, meta.loading]);
+  const useAlt = locked && !!alt;
+  const provider = useAlt ? alt!.provider : pProv;
+  const link = useAlt ? alt!.link : pLink;
+  const info: Info | undefined = useAlt ? alt!.info : meta.data;
+  const hist = useApp((s) => s.history[itemKey(provider, link)]);
+  const showLoad = !useAlt && (meta.loading || (primaryBad && altState === "searching"));
+  const showErr = !useAlt && !showLoad && !!meta.error;
+  const dls = useDownloads();
+
   const groups: LinkItem[] = useMemo(() => (info?.linkList || []).filter((g) => g && (g.episodesLink || g.directLinks?.length)), [info]);
   const g = groups[Math.min(sel, Math.max(0, groups.length - 1))];
   const eps = useAsync(() => getEpisodes(provider, g!.episodesLink!), [provider, g?.episodesLink], !!g?.episodesLink);
@@ -39,11 +63,19 @@ export default function Detail() {
 
   const play = (index: number) => {
     if (!items.length) return;
-    setSession({ provider, detailLink: link, title, image, items, index });
+    setSession({ provider, detailLink: link, title, image, items, index, type, groups: groups as any, groupIdx: Math.min(sel, Math.max(0, groups.length - 1)) });
     router.push("/player");
   };
   const resumeIndex = hist?.epLink ? items.findIndex((x) => x.link === hist.epLink) : -1;
   const playNow = () => play(resumeIndex >= 0 ? resumeIndex : 0);
+  const toast = (m: string) => { if (Platform.OS === "android") ToastAndroid.show(m, ToastAndroid.SHORT); };
+  const dl = (index: number, quiet = false) => {
+    const it = items[index]; if (!it) return;
+    enqueue({ provider, detailLink: link, title, image, epTitle: it.title, type: it.type, link: it.link,
+      ctx: { provider, title, type: it.type, index, items, groups: groups as any, groupIdx: Math.min(sel, Math.max(0, groups.length - 1)) } });
+    if (!quiet) toast("Download shuru • Downloads tab me dekho");
+  };
+  const dlMain = () => { if (type === "series") { items.slice(0, 60).forEach((_, i) => dl(i, true)); toast(`${Math.min(items.length, 60)} episodes line me lage`); } else dl(resumeIndex >= 0 ? resumeIndex : 0); };
 
   return (
     <View style={{ flex: 1 }}>
@@ -64,11 +96,13 @@ export default function Detail() {
           </View>
         </View>
 
-        {meta.loading ? <Loading label="Details load ho rahe hain…" /> : meta.error ? <ErrorBox text={meta.error} onRetry={meta.reload} /> : <View style={{ paddingHorizontal: 16 }}>
+        {showLoad ? <Loading label={primaryBad ? "Ye provider nahi chala, doosre me dhoondh raha hoon…" : "Details load ho rahe hain…"} /> : showErr ? <ErrorBox text={meta.error!} onRetry={() => { altRun.current = false; setAltState("idle"); meta.reload(); }} /> : <View style={{ paddingHorizontal: 16 }}>
+          {useAlt ? <Text style={st.altNote}>Provider badla: {alt!.name} (pehla provider nahi chala)</Text> : null}
           <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
             <Btn label={hist ? "Resume" : "Play Now"} icon="play" onPress={playNow} disabled={!items.length} style={{ flex: 1.4 }} />
+            <Btn label={type === "series" ? "Sab download" : "Download"} icon="download-outline" kind="ghost" onPress={dlMain} disabled={!items.length} style={{ flex: 1.2 }} />
             <Btn label={saved ? "Saved" : "My List"} icon={saved ? "checkmark" : "add"} kind="ghost" style={{ flex: 1 }}
-              onPress={() => toggleWatchlist({ provider, link, title, image })} />
+              onPress={() => toggleWatchlist({ provider: pProv, link: pLink, title, image })} />
           </View>
 
           {info?.synopsis ? <Pressable onPress={() => setMore(!more)}>
@@ -92,6 +126,10 @@ export default function Detail() {
                   <Pressable key={it.link + i} onPress={() => play(i)} style={[st.ep, cur && { borderColor: C.accent }]}>
                     <View style={st.epNum}>{cur ? <Ionicons name="play" size={16} color="#fff" /> : <Text style={st.epNumTxt}>{i + 1}</Text>}</View>
                     <Text style={st.epTitle} numberOfLines={2}>{it.title}</Text>
+                    {(() => { const d = dls.find((x) => x.provider === provider && x.link === it.link && x.status !== "error");
+                      return <Pressable hitSlop={8} onPress={() => (d ? toast(d.status === "done" ? "Download ho chuka hai" : "Download chal raha hai") : dl(i))} style={{ paddingHorizontal: 4, alignItems: "center", minWidth: 34 }}>
+                        {d?.status === "done" ? <Ionicons name="checkmark-circle" size={22} color="#3ddc84" /> : d ? <Text style={{ color: C.accent2, fontWeight: "800", fontSize: 12 }}>{Math.round(d.progress * 100)}%</Text> : <Ionicons name="download-outline" size={22} color={C.sub} />}
+                      </Pressable>; })()}
                     <Ionicons name="chevron-forward" size={18} color={C.sub} />
                   </Pressable>
                 );
@@ -107,6 +145,7 @@ export default function Detail() {
   );
 }
 const st = StyleSheet.create({
+  altNote: { color: C.accent2, fontSize: 12.5, marginTop: 10 },
   back: { position: "absolute", left: 12, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,.55)", alignItems: "center", justifyContent: "center" },
   poster: { width: 116, height: 170, borderRadius: R.m, overflow: "hidden", backgroundColor: C.card, borderWidth: 1, borderColor: C.line },
   title: { color: C.text, fontSize: 22, fontWeight: "900" },

@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { C } from "../../theme";
-import { getCatalog, getPosts, getProviders } from "../../engine/engine";
+import { getCatalog, getLatest2026, getPosts, getProviders, type Latest } from "../../engine/engine";
 import type { Catalog, Post } from "../../engine/types";
 import { historyList, inWatchlist, toggleWatchlist, useApp } from "../../state/store";
 import { useAsync } from "../../lib/useAsync";
@@ -37,7 +37,10 @@ function Hero({ posts, provider }: { posts: Post[]; provider: string }) {
               <Image source={{ uri: item.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
               <LinearGradient colors={["transparent", "rgba(11,11,16,.7)", C.bg]} style={StyleSheet.absoluteFill} locations={[0.35, 0.75, 1]} />
               <View style={st.heroBody}>
-                <Text style={st.badge}>TRENDING NOW</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text style={st.badge}>{item.rating ? "TOP RATED • 2026" : "TRENDING NOW"}</Text>
+                  {item.rating ? <View style={st.rate}><Ionicons name="star" size={12} color={C.accent2} /><Text style={st.rateTxt}>{item.rating.toFixed(1)}</Text></View> : null}
+                </View>
                 <Text style={st.heroTitle} numberOfLines={2}>{item.title}</Text>
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
                   <Btn label="Dekho" icon="play" onPress={() => openDetail(provider, item)} style={{ flex: 1 }} />
@@ -67,6 +70,19 @@ function CatalogRow({ provider, cat, ranked }: { provider: string; cat: Catalog;
   );
 }
 
+function PostRow({ title, provider, posts }: { title: string; provider: string; posts: Post[] }) {
+  if (!posts.length) return null;
+  return (
+    <View>
+      <SectionHeader title={title} />
+      <FlatList horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} data={posts} keyExtractor={(p) => p.link}
+        renderItem={({ item }) => <PosterCard post={item} onPress={() => openDetail(provider, item)} />} />
+    </View>
+  );
+}
+
+const NO_LATEST: Latest = { movies: [], series: [], hero: [] };
+
 export default function Home() {
   const insets = useSafeAreaInsets();
   const provider = useApp((s) => s.provider);
@@ -77,17 +93,20 @@ export default function Home() {
   const cat = useAsync(() => getCatalog(provider), [provider]);
   const first = cat.data?.catalog[0];
   const posts = useAsync(() => getPosts(provider, first!.filter, 1), [provider, first?.filter], !!first);
+  const latest = useAsync(() => getLatest2026(provider).catch(() => NO_LATEST), [provider]);
+  const heroPosts = latest.data?.hero.length ? latest.data.hero : latest.loading ? [] : posts.data?.slice(0, 6) ?? [];
   const names = useAsync(getProviders, []);
   const pname = names.data?.find((p) => p.value === provider)?.name || provider;
   const failed = cat.error || posts.error;
+  const { width: winW } = useWindowDimensions();
 
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
-        {cat.loading || (first && posts.loading) ? <View style={{ height: 420 }}><Loading label="Load ho raha hai…" /></View>
+        {cat.loading && !cat.data ? <View style={{ height: 420 }}><Loading label="Load ho raha hai…" /></View>
           : failed ? <View style={{ paddingTop: insets.top + 60 }}><ErrorBox text={failed} onRetry={() => { cat.reload(); posts.reload(); }} /><Btn label="Provider badlo" icon="swap-horizontal" kind="ghost" onPress={() => setSheet(true)} style={{ alignSelf: "center" }} /></View>
           : <>
-            {posts.data?.length ? <Hero posts={posts.data.slice(0, 6)} provider={provider} /> : <View style={{ height: insets.top + 70 }} />}
+            {heroPosts.length ? <Hero key={heroPosts[0].link} posts={heroPosts} provider={provider} /> : (posts.loading || latest.loading) ? <View style={{ height: Math.round(winW * 1.15), backgroundColor: C.card, justifyContent: "center" }}><Loading label="Load ho raha hai…" /></View> : <View style={{ height: insets.top + 70 }} />}
             {hist.length ? <View>
               <SectionHeader title="Continue Watching" />
               <FlatList horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} data={hist} keyExtractor={(h) => h.key}
@@ -99,7 +118,9 @@ export default function Home() {
               <FlatList horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} data={watch} keyExtractor={(w) => w.provider + w.link}
                 renderItem={({ item }) => <PosterCard post={item} onPress={() => openDetail(item.provider, item)} />} />
             </View> : null}
-            {(cat.data?.catalog || []).slice(0, 8).map((c, k) => <CatalogRow key={provider + c.filter + k} provider={provider} cat={c} ranked={k === 0} />)}
+            <PostRow title="2026 • Latest Hindi Movies" provider={provider} posts={latest.data?.movies ?? []} />
+            <PostRow title="2026 • Latest Hindi Web Series" provider={provider} posts={latest.data?.series ?? []} />
+            {(cat.data?.catalog || []).slice(0, 6).map((c, k) => <CatalogRow key={provider + c.filter + k} provider={provider} cat={c} ranked={k === 0} />)}
           </>}
       </ScrollView>
       <View style={[st.top, { paddingTop: insets.top + 6 }]} pointerEvents="box-none">
@@ -118,6 +139,8 @@ const st = StyleSheet.create({
   provBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,.55)", paddingHorizontal: 12, height: 34, borderRadius: 17, maxWidth: 160, borderWidth: 1, borderColor: C.line },
   provTxt: { color: C.text, fontWeight: "600", fontSize: 13, flexShrink: 1 },
   heroBody: { position: "absolute", left: 16, right: 16, bottom: 34 },
+  rate: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,.6)", paddingHorizontal: 8, height: 22, borderRadius: 11 },
+  rateTxt: { color: "#fff", fontWeight: "800", fontSize: 12 },
   badge: { color: C.accent2, fontWeight: "800", fontSize: 12, letterSpacing: 1.5 },
   heroTitle: { color: C.text, fontSize: 28, fontWeight: "900", marginTop: 4 },
   dots: { position: "absolute", bottom: 12, alignSelf: "center", flexDirection: "row", gap: 5 },

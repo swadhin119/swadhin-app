@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { C } from "../theme";
 import { clearCaches } from "../engine/engine";
 import { hydrate, useApp } from "../state/store";
+import { loadDownloads } from "../engine/downloads";
 import { Loading } from "../components/ui";
 
 // Koi bhi crash ho to blank screen ki jagah error text dikhao (aur retry / cache reset)
@@ -27,7 +28,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 export default function RootLayout() {
   const ready = useApp((s) => s.ready);
-  useEffect(() => { void hydrate(); }, []);
+  useEffect(() => { void hydrate(); void loadDownloads(); }, []);
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />

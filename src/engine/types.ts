@@ -1,5 +1,5 @@
 export interface ProviderInfo { value: string; name: string; version: string; icon?: string; type?: string }
-export interface Post { title: string; link: string; image: string; provider?: string }
+export interface Post { title: string; link: string; image: string; provider?: string; rating?: number }
 export interface Catalog { title: string; filter: string }
 export interface DirectLink { title: string; link: string; type?: "movie" | "series" }
 export interface LinkItem { title: string; quality?: string; episodesLink?: string; directLinks?: DirectLink[] }

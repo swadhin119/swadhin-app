@@ -12,6 +12,7 @@ export default function TabsLayout() {
       tabBarStyle: { backgroundColor: C.card, borderTopColor: C.line }, tabBarLabelStyle: { fontSize: 11, fontWeight: "600" }, sceneStyle: { backgroundColor: C.bg } }}>
       <Tabs.Screen name="index" options={{ title: "Home", tabBarIcon: icon("home", "home-outline") }} />
       <Tabs.Screen name="search" options={{ title: "Search", tabBarIcon: icon("search", "search-outline") }} />
+      <Tabs.Screen name="downloads" options={{ title: "Downloads", tabBarIcon: icon("download", "download-outline") }} />
       <Tabs.Screen name="library" options={{ title: "Library", tabBarIcon: icon("grid", "grid-outline") }} />
       <Tabs.Screen name="profile" options={{ title: "Profile", tabBarIcon: icon("person", "person-outline") }} />
     </Tabs>

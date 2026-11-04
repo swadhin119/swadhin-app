@@ -2,7 +2,7 @@
   "expo": {
     "name": "SWADHIN",
     "slug": "swadhin",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -19,6 +19,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.swadhin.app",
+      "versionCode": 3,
       "backgroundColor": "#0b0b10",
       "permissions": [
         "INTERNET",
@@ -48,15 +49,7 @@
       "image": "./assets/splash-icon.png"
     },
     "extra": {
-      "eas": {
-        "projectId": "204d979c-4c51-480e-bfba-c214f24ee0d7"
-      },
-      "router": {
-        "asyncRoutes": {
-          "web": true
-        }
-      }
-    },
-    "owner": "swadhinrout"
+      "eas": {}
+    }
   }
 }

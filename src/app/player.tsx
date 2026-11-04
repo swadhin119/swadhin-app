@@ -9,6 +9,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C, R } from "../theme";
 import { getStreams } from "../engine/engine";
+import { makeAltFinder, type AltItem } from "../engine/fallback";
+import { enqueue } from "../engine/downloads";
 import type { Stream } from "../engine/types";
 import { getSession, getState, itemKey, saveProgress } from "../state/store";
 import { useAsync } from "../lib/useAsync";
@@ -21,12 +23,19 @@ export default function Player() {
   const sess = getSession();
   const { width } = useWindowDimensions();
   const [index, setIndex] = useState(sess?.index ?? 0);
-  const item = sess?.items[index];
+  // auto-fallback: jab tak chale nahi, doosre drive / quality / provider par apne aap
+  const [alt, setAlt] = useState<{ forIndex: number; provider: string; items: AltItem[]; at: number } | null>(null);
+  const live = alt && alt.forIndex === index ? alt : null;
+  const prov = live ? live.provider : sess?.provider ?? "";
+  const item = live ? live.items[live.at] : sess?.items[index];
+  const orig = sess?.items[index];
+  const origRef = useRef(orig); origRef.current = orig;
+  const isLocal = !!item && /^file:/i.test(item.link);
   const hasNext = !!sess && index < sess.items.length - 1;
   const hasPrev = index > 0;
 
-  const streams = useAsync(() => getStreams(sess!.provider, item!.link, item!.type), [sess, item?.link], !!item);
-  const list = streams.data;
+  const streams = useAsync(() => getStreams(prov, item!.link, item!.type), [prov, item?.link], !!item);
+  const list = streams.loading ? undefined : streams.data;
   const [sel, setSel] = useState<string | null>(null);
   const [failed, setFailed] = useState<Set<string>>(new Set());
   const stream = list?.find((s) => s.id === sel) || null;
@@ -42,6 +51,13 @@ export default function Player() {
   const [subIdx, setSubIdx] = useState(-1);
   const [cues, setCues] = useState<Cue[]>([]);
 
+  const [switching, setSwitching] = useState(false);
+  const [exhausted, setExhausted] = useState(false);
+  const [note, setNote] = useState("");
+  const switchingRef = useRef(false);
+  const finder = useRef<ReturnType<typeof makeAltFinder> | null>(null);
+  const finderIdx = useRef(-1);
+  const started = useRef(false);
   const startAt = useRef(0);
   const lastTime = useRef(0);
   const lastDur = useRef(0);
@@ -64,6 +80,7 @@ export default function Player() {
     const h = getState().history[itemKey(sess.provider, sess.detailLink)];
     startAt.current = h?.epLink === item.link && h.pos > 5 && (!h.dur || h.pos < h.dur - 30) ? h.pos : 0;
     setSel(null); setFailed(new Set()); setTime(0); setDur(0); setLoading(true); setSubIdx(-1); setCues([]); setPanel(null);
+    finder.current = null; setExhausted(false); setNote("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index]);
 
@@ -80,6 +97,42 @@ export default function Player() {
     setFailed((f) => new Set(f).add(stream.id));
     setSel(null);
   }, [stream]);
+
+  useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(""), 4500); return () => clearTimeout(t); }, [note]);
+
+  const switchSource = useCallback(async () => {
+    if (!sess || !orig || switchingRef.current) return;
+    switchingRef.current = true; setSwitching(true);
+    try {
+      if (!finder.current || finderIdx.current !== index) {
+        finderIdx.current = index; setExhausted(false);
+        finder.current = makeAltFinder({ provider: sess.provider, title: sess.title, type: sess.type ?? orig.type, index, items: sess.items, groups: sess.groups, groupIdx: sess.groupIdx });
+      }
+      const c = await finder.current.next();
+      if (!c) { setExhausted(true); setNote("Koi aur source nahi mila"); return; }
+      startAt.current = lastTime.current > 5 ? lastTime.current : startAt.current;
+      setFailed(new Set()); setSel(null); setLoading(true);
+      setAlt({ forIndex: index, provider: c.provider, items: c.items, at: c.at });
+      setNote("Source badla: " + c.label);
+    } catch { setExhausted(true); } finally { switchingRef.current = false; setSwitching(false); }
+  }, [sess, orig, index]);
+
+  const allFailed0 = !!list && list.length > 0 && list.every((s) => failed.has(s.id));
+  const noStreams0 = !streams.loading && (!!streams.error || (!!list && list.length === 0));
+  useEffect(() => {
+    if (!sess || !item || isLocal || exhausted || switching) return;
+    if (allFailed0 || noStreams0) void switchSource();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allFailed0, noStreams0, exhausted, switching, item?.link, prov]);
+
+  // stream chuna par 30s me start hi nahi hua to bekaar maan ke agla
+  useEffect(() => {
+    if (!stream || stream.kind === "embed") return;
+    started.current = false;
+    const t = setTimeout(() => { if (!started.current) markFailed(); }, 30000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stream?.id]);
 
   // ---- stream badla: player me load karo ----
   useEffect(() => {
@@ -98,7 +151,7 @@ export default function Player() {
     const subs = [
       player.addListener("statusChange", ({ status }) => {
         if (status === "readyToPlay") {
-          setLoading(false);
+          started.current = true; setLoading(false);
           if (startAt.current > 2) { player.currentTime = startAt.current; startAt.current = 0; }
           player.play();
         } else if (status === "loading") setLoading(true);
@@ -108,8 +161,9 @@ export default function Player() {
       player.addListener("timeUpdate", ({ currentTime }) => {
         lastTime.current = currentTime; setTime(currentTime);
         const d = player.duration; if (d > 0 && d !== lastDur.current) { lastDur.current = d; setDur(d); }
-        if (currentTime > 0.5) setLoading(false);
-        if (sess && item && currentTime > 3) saveProgress({ provider: sess.provider, link: sess.detailLink, title: sess.title, image: sess.image, pos: currentTime, dur: lastDur.current, epTitle: item.title, epLink: item.link, epType: item.type });
+        if (currentTime > 0.5) { started.current = true; setLoading(false); }
+        const o = origRef.current;
+        if (sess && o && !/^file:/i.test(o.link) && currentTime > 3) saveProgress({ provider: sess.provider, link: sess.detailLink, title: sess.title, image: sess.image, pos: currentTime, dur: lastDur.current, epTitle: o.title, epLink: o.link, epType: o.type });
       }),
       player.addListener("playToEnd", () => { if (hasNext) setIndex((i) => i + 1); else router.back(); }),
     ];
@@ -120,7 +174,8 @@ export default function Player() {
   // ---- band hote waqt progress pakka save + player roko ----
   useEffect(() => () => {
     try {
-      if (sess && item && lastTime.current > 3) saveProgress({ provider: sess.provider, link: sess.detailLink, title: sess.title, image: sess.image, pos: lastTime.current, dur: lastDur.current, epTitle: item.title, epLink: item.link, epType: item.type }, true);
+      const o = origRef.current;
+      if (sess && o && !/^file:/i.test(o.link) && lastTime.current > 3) saveProgress({ provider: sess.provider, link: sess.detailLink, title: sess.title, image: sess.image, pos: lastTime.current, dur: lastDur.current, epTitle: o.title, epLink: o.link, epType: o.type }, true);
       player.pause();
     } catch { /* player pehle hi release ho chuka */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,8 +234,9 @@ export default function Player() {
 
   if (!sess || !item) return <View style={st.root}><Text style={{ color: C.text, margin: 40 }}>Kuch chalane ko nahi hai.</Text><Pressable onPress={() => router.back()}><Text style={{ color: C.accent, marginLeft: 40 }}>Wapas</Text></Pressable></View>;
 
-  const allFailed = !!list && list.length > 0 && list.every((s) => failed.has(s.id));
-  const noStreams = !streams.loading && (!!streams.error || (list && list.length === 0));
+  const allFailed = allFailed0;
+  const noStreams = noStreams0;
+  const giveUp = (allFailed || noStreams) && (exhausted || isLocal) && !switching;
   const embed = stream?.kind === "embed";
 
   return (
@@ -203,9 +259,11 @@ export default function Player() {
         </>
       )}
 
-      {(streams.loading || (loading && !embed && !allFailed && !noStreams)) ? <View pointerEvents="none" style={st.center}><ActivityIndicator size="large" color={C.accent} /><Text style={st.hint}>{streams.loading ? "Streams dhoondh raha hoon…" : "Buffering…"}</Text></View> : null}
+      {note ? <View pointerEvents="none" style={st.note}><Text style={st.noteTxt} numberOfLines={2}>{note}</Text></View> : null}
 
-      {(allFailed || noStreams) ? (
+      {(streams.loading || switching || (loading && !embed && !allFailed && !noStreams)) ? <View pointerEvents="none" style={st.center}><ActivityIndicator size="large" color={C.accent} /><Text style={st.hint}>{switching ? "Doosra source dhoondh raha hoon…" : streams.loading ? "Streams dhoondh raha hoon…" : "Buffering…"}</Text></View> : null}
+
+      {giveUp ? (
         <View style={st.center}>
           <Ionicons name="alert-circle-outline" size={44} color={C.danger} />
           <Text style={[st.hint, { fontSize: 15, textAlign: "center", maxWidth: 420 }]}>{streams.error ? streams.error : allFailed ? "Koi server nahi chala." : "Is episode ke liye stream nahi mili."}</Text>
@@ -217,7 +275,7 @@ export default function Player() {
         </View>
       ) : null}
 
-      {(shown || embed || allFailed || noStreams) ? (
+      {(shown || embed || giveUp) ? (
         <>
           <View style={st.top} pointerEvents="box-none">
             <Pressable onPress={() => router.back()} hitSlop={10} style={st.iconBtn}><Ionicons name="chevron-back" size={26} color="#fff" /></Pressable>
@@ -225,11 +283,14 @@ export default function Player() {
               <Text style={st.title} numberOfLines={1}>{sess.title}</Text>
               <Text style={st.epTitle} numberOfLines={1}>{sess.items.length > 1 || item.title ? item.title : ""}</Text>
             </View>
+            {!isLocal ? <Pressable onPress={() => { setExhausted(false); void switchSource(); }} style={st.iconBtn} hitSlop={8}><Ionicons name="shuffle" size={22} color="#fff" /></Pressable> : null}
+            {!isLocal && orig ? <Pressable onPress={() => { enqueue({ provider: sess.provider, detailLink: sess.detailLink, title: sess.title, image: sess.image, epTitle: orig.title, type: orig.type, link: orig.link,
+              ctx: { provider: sess.provider, title: sess.title, type: sess.type ?? orig.type, index, items: sess.items, groups: sess.groups, groupIdx: sess.groupIdx } }); setNote("Download shuru • Downloads tab me dekho"); }} style={st.iconBtn} hitSlop={8}><Ionicons name="download-outline" size={22} color="#fff" /></Pressable> : null}
             {(stream?.subtitles?.length ?? 0) > 0 && !embed ? <Pressable onPress={() => { setPanel("subs"); }} style={st.iconBtn} hitSlop={8}><Ionicons name={subIdx >= 0 ? "chatbox-ellipses" : "chatbox-ellipses-outline"} size={22} color="#fff" /></Pressable> : null}
             {(list?.length ?? 0) > 0 ? <Pressable onPress={() => setPanel("servers")} style={st.serverBtn} hitSlop={8}><Ionicons name="server-outline" size={16} color="#fff" /><Text style={st.serverTxt} numberOfLines={1}>{stream ? label(stream) : "Servers"}</Text></Pressable> : null}
           </View>
 
-          {!embed && !allFailed && !noStreams ? (
+          {!embed && !giveUp && !allFailed && !noStreams ? (
             <>
               <View style={st.mid} pointerEvents="box-none">
                 <Pressable onPress={() => hasPrev && setIndex((i) => i - 1)} disabled={!hasPrev} style={[st.iconBtn, !hasPrev && { opacity: 0.25 }]}><Ionicons name="play-skip-back" size={28} color="#fff" /></Pressable>
@@ -303,6 +364,8 @@ const st = StyleSheet.create({
   sub: { color: "#fff", fontSize: 18, textAlign: "center", fontWeight: "600", backgroundColor: "rgba(0,0,0,.55)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 6, overflow: "hidden", textShadowColor: "#000", textShadowRadius: 3 },
   flash: { position: "absolute", top: "38%", width: 90, height: 90, borderRadius: 45, backgroundColor: "rgba(255,255,255,.18)", alignItems: "center", justifyContent: "center" },
   flashTxt: { color: "#fff", fontWeight: "800", fontSize: 12 },
+  note: { position: "absolute", top: 70, alignSelf: "center", maxWidth: "70%", backgroundColor: "rgba(0,0,0,.75)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18 },
+  noteTxt: { color: "#fff", fontSize: 13, fontWeight: "600", textAlign: "center" },
   pill: { paddingHorizontal: 16, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,.16)", alignItems: "center", justifyContent: "center" },
   pillTxt: { color: "#fff", fontWeight: "700" },
   panelBack: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,.5)", alignItems: "flex-end" },

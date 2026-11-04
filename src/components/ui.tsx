@@ -35,12 +35,13 @@ export const Chip = ({ label, active, onPress }: { label: string; active?: boole
 );
 
 export const POSTER_W = 118, POSTER_H = 172;
-export function PosterCard({ post, onPress, w = POSTER_W, h = POSTER_H, rank }: { post: Pick<Post, "title" | "image">; onPress: () => void; w?: number; h?: number; rank?: number }) {
+export function PosterCard({ post, onPress, w = POSTER_W, h = POSTER_H, rank }: { post: Pick<Post, "title" | "image" | "rating">; onPress: () => void; w?: number; h?: number; rank?: number }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [{ width: w }, pressed && { opacity: 0.8 }]}>
       <View style={{ width: w, height: h, borderRadius: R.m, overflow: "hidden", backgroundColor: C.card }}>
         {post.image ? <Image source={{ uri: post.image }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} recyclingKey={post.image} /> : <View style={[StyleSheet.absoluteFill, s.center]}><Ionicons name="film-outline" size={28} color={C.sub} /></View>}
         {rank ? <View style={s.rank}><Text style={s.rankTxt}>{rank}</Text></View> : null}
+        {post.rating ? <View style={s.rate}><Ionicons name="star" size={10} color={C.accent2} /><Text style={s.rateTxt}>{post.rating.toFixed(1)}</Text></View> : null}
       </View>
       <Text numberOfLines={2} style={s.cardTitle}>{post.title}</Text>
     </Pressable>
@@ -63,6 +64,8 @@ const s = StyleSheet.create({
   chipTxt: { color: C.sub, fontSize: 13 },
   cardTitle: { color: C.text, fontSize: 12.5, marginTop: 6, lineHeight: 16 },
   rank: { position: "absolute", left: 0, bottom: 0, backgroundColor: "rgba(0,0,0,.72)", paddingHorizontal: 9, paddingVertical: 2, borderTopRightRadius: R.m },
+  rate: { position: "absolute", right: 5, top: 5, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,.7)", paddingHorizontal: 6, height: 20, borderRadius: 10 },
+  rateTxt: { color: "#fff", fontWeight: "800", fontSize: 11 },
   rankTxt: { color: C.accent2, fontWeight: "900", fontSize: 20 },
   secHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, marginTop: 22, marginBottom: 10 },
   secTitle: { color: C.text, fontSize: 18, fontWeight: "800", flex: 1, marginRight: 10 },
