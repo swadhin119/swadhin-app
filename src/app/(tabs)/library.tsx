@@ -48,7 +48,7 @@ export default function Library() {
   return (
     <ScrollView contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 40 }}>
       <Text style={st.h1}>Library</Text>
-      {loading ? <Loading /> : error || !data ? <ErrorBox text={error || "Kuch nahi mila"} onRetry={reload} /> : <>
+      {loading ? <Loading /> : error || !data ? <ErrorBox text={error || "Nothing found"} onRetry={reload} /> : <>
         <Text style={st.h2}>Sections</Text>
         <View style={st.grid}>{data.catalog.map((c, i) => <Tile key={"c" + i} c={c} i={i} w={w} provider={provider} />)}</View>
         {data.genres.length ? <>

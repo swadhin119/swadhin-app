@@ -12,7 +12,7 @@ export const ErrorBox = ({ text, onRetry }: { text: string; onRetry?: () => void
   <View style={s.center}>
     <Ionicons name="cloud-offline-outline" size={40} color={C.sub} />
     <Text style={[s.sub, { marginTop: 10, textAlign: "center", paddingHorizontal: 24 }]} numberOfLines={6}>{text}</Text>
-    {onRetry ? <Btn label="Dobara try karo" icon="refresh" onPress={onRetry} style={{ marginTop: 16 }} /> : null}
+    {onRetry ? <Btn label="Try again" icon="refresh" onPress={onRetry} style={{ marginTop: 16 }} /> : null}
   </View>
 );
 export const Empty = ({ text, icon = "film-outline" }: { text: string; icon?: keyof typeof Ionicons.glyphMap }) => (
@@ -50,7 +50,7 @@ export function PosterCard({ post, onPress, w = POSTER_W, h = POSTER_H, rank }: 
 export const SectionHeader = ({ title, onMore }: { title: string; onMore?: () => void }) => (
   <View style={s.secHead}>
     <Text style={s.secTitle} numberOfLines={1}>{title}</Text>
-    {onMore ? <Pressable onPress={onMore} hitSlop={10}><Text style={{ color: C.accent, fontWeight: "600" }}>Sab dekho</Text></Pressable> : null}
+    {onMore ? <Pressable onPress={onMore} hitSlop={10}><Text style={{ color: C.accent, fontWeight: "600" }}>See all</Text></Pressable> : null}
   </View>
 );
 export const Skeleton = ({ w = POSTER_W, h = POSTER_H }: { w?: number; h?: number }) => <View style={{ width: w, height: h, borderRadius: R.m, backgroundColor: C.card }} />;

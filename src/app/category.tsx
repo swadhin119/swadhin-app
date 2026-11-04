@@ -37,7 +37,7 @@ export default function Category() {
       </View>
       {error && !items.length ? <ErrorBox text={error} onRetry={() => load(1)} />
         : loading && !items.length ? <Loading />
-        : !items.length ? <Empty text="Kuch nahi mila" />
+        : !items.length ? <Empty text="Nothing found" />
         : <PostGrid posts={items} provider={provider} onOpen={(p) => openDetail(provider, p)} footerLoading={loading}
             onEnd={() => { if (more && !loading) void load(page + 1); }} />}
     </View>

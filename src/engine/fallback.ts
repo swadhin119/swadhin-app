@@ -58,8 +58,8 @@ export function makeAltFinder(ctx: AltCtx) {
 
   const stage0 = async (): Promise<Cand[]> => {
     const out: Cand[] = [];
-    if (ctx.type === "movie") ctx.items.forEach((it, i) => { if (i !== ctx.index) out.push({ provider: ctx.provider, items: ctx.items, at: i, label: it.title || "Doosra drive" }); }); // isi quality ke doosre drives
-    if (ctx.groups?.length) out.push(...(await fromGroups(ctx.provider, ctx.groups, ctx.groupIdx ?? -1, ctx, "Doosri quality")));
+    if (ctx.type === "movie") ctx.items.forEach((it, i) => { if (i !== ctx.index) out.push({ provider: ctx.provider, items: ctx.items, at: i, label: it.title || "Another drive" }); }); // isi quality ke doosre drives
+    if (ctx.groups?.length) out.push(...(await fromGroups(ctx.provider, ctx.groups, ctx.groupIdx ?? -1, ctx, "Another quality")));
     return out;
   };
   const nextProviders = async (): Promise<boolean> => {

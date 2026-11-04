@@ -73,9 +73,9 @@ export default function Detail() {
     const it = items[index]; if (!it) return;
     enqueue({ provider, detailLink: link, title, image, epTitle: it.title, type: it.type, link: it.link,
       ctx: { provider, title, type: it.type, index, items, groups: groups as any, groupIdx: Math.min(sel, Math.max(0, groups.length - 1)) } });
-    if (!quiet) toast("Download shuru • Downloads tab me dekho");
+    if (!quiet) toast("Download started • see the Downloads tab");
   };
-  const dlMain = () => { if (type === "series") { items.slice(0, 60).forEach((_, i) => dl(i, true)); toast(`${Math.min(items.length, 60)} episodes line me lage`); } else dl(resumeIndex >= 0 ? resumeIndex : 0); };
+  const dlMain = () => { if (type === "series") { items.slice(0, 60).forEach((_, i) => dl(i, true)); toast(`${Math.min(items.length, 60)} episodes added to the queue`); } else dl(resumeIndex >= 0 ? resumeIndex : 0); };
 
   return (
     <View style={{ flex: 1 }}>
@@ -96,18 +96,18 @@ export default function Detail() {
           </View>
         </View>
 
-        {showLoad ? <Loading label={primaryBad ? "Ye provider nahi chala, doosre me dhoondh raha hoon…" : "Details load ho rahe hain…"} /> : showErr ? <ErrorBox text={meta.error!} onRetry={() => { altRun.current = false; setAltState("idle"); meta.reload(); }} /> : <View style={{ paddingHorizontal: 16 }}>
-          {useAlt ? <Text style={st.altNote}>Provider badla: {alt!.name} (pehla provider nahi chala)</Text> : null}
+        {showLoad ? <Loading label={primaryBad ? "This provider failed, searching others…" : "Loading details…"} /> : showErr ? <ErrorBox text={meta.error!} onRetry={() => { altRun.current = false; setAltState("idle"); meta.reload(); }} /> : <View style={{ paddingHorizontal: 16 }}>
+          {useAlt ? <Text style={st.altNote}>Provider switched: {alt!.name} (the first provider failed)</Text> : null}
           <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
             <Btn label={hist ? "Resume" : "Play Now"} icon="play" onPress={playNow} disabled={!items.length} style={{ flex: 1.4 }} />
-            <Btn label={type === "series" ? "Sab download" : "Download"} icon="download-outline" kind="ghost" onPress={dlMain} disabled={!items.length} style={{ flex: 1.2 }} />
+            <Btn label={type === "series" ? "Download all" : "Download"} icon="download-outline" kind="ghost" onPress={dlMain} disabled={!items.length} style={{ flex: 1.2 }} />
             <Btn label={saved ? "Saved" : "My List"} icon={saved ? "checkmark" : "add"} kind="ghost" style={{ flex: 1 }}
               onPress={() => toggleWatchlist({ provider: pProv, link: pLink, title, image })} />
           </View>
 
           {info?.synopsis ? <Pressable onPress={() => setMore(!more)}>
             <Text style={st.syn} numberOfLines={more ? undefined : 4}>{info.synopsis}</Text>
-            <Text style={{ color: C.accent, marginTop: 4, fontWeight: "600" }}>{more ? "Kam dikhao" : "Aur padho"}</Text>
+            <Text style={{ color: C.accent, marginTop: 4, fontWeight: "600" }}>{more ? "Show less" : "Read more"}</Text>
           </Pressable> : null}
           {info?.cast?.length ? <Text style={st.cast} numberOfLines={2}>Cast: {info.cast.slice(0, 8).join(", ")}</Text> : null}
 
@@ -117,7 +117,7 @@ export default function Detail() {
               {groups.map((x, i) => <Chip key={i} label={(x.title || "Link " + (i + 1)).slice(0, 38) + (x.quality && !x.title?.includes(x.quality) ? " • " + x.quality : "")} active={i === sel} onPress={() => setSel(i)} />)}
             </ScrollView>
 
-            {g?.episodesLink && eps.loading ? <Loading label="Episodes aa rahe hain…" /> : null}
+            {g?.episodesLink && eps.loading ? <Loading label="Loading episodes…" /> : null}
             {g?.episodesLink && eps.error ? <ErrorBox text={eps.error} onRetry={eps.reload} /> : null}
             <View style={{ marginTop: 14, gap: 8 }}>
               {items.map((it, i) => {
@@ -127,17 +127,17 @@ export default function Detail() {
                     <View style={st.epNum}>{cur ? <Ionicons name="play" size={16} color="#fff" /> : <Text style={st.epNumTxt}>{i + 1}</Text>}</View>
                     <Text style={st.epTitle} numberOfLines={2}>{it.title}</Text>
                     {(() => { const d = dls.find((x) => x.provider === provider && x.link === it.link && x.status !== "error");
-                      return <Pressable hitSlop={8} onPress={() => (d ? toast(d.status === "done" ? "Download ho chuka hai" : "Download chal raha hai") : dl(i))} style={{ paddingHorizontal: 4, alignItems: "center", minWidth: 34 }}>
+                      return <Pressable hitSlop={8} onPress={() => (d ? toast(d.status === "done" ? "Already downloaded" : "Download in progress") : dl(i))} style={{ paddingHorizontal: 4, alignItems: "center", minWidth: 34 }}>
                         {d?.status === "done" ? <Ionicons name="checkmark-circle" size={22} color="#3ddc84" /> : d ? <Text style={{ color: C.accent2, fontWeight: "800", fontSize: 12 }}>{Math.round(d.progress * 100)}%</Text> : <Ionicons name="download-outline" size={22} color={C.sub} />}
                       </Pressable>; })()}
                     <Ionicons name="chevron-forward" size={18} color={C.sub} />
                   </Pressable>
                 );
               })}
-              {!items.length && !eps.loading && !eps.error ? <Text style={{ color: C.sub, marginTop: 8 }}>Is option me koi link nahi mila.</Text> : null}
+              {!items.length && !eps.loading && !eps.error ? <Text style={{ color: C.sub, marginTop: 8 }}>No links found for this option.</Text> : null}
             </View>
-          </> : <Text style={{ color: C.sub, marginTop: 24 }}>Is title ke liye koi stream link nahi mila. Doosra provider try karo.</Text>}
-          {info?.webUrl ? <Pressable onPress={() => Linking.openURL(info.webUrl!)} style={{ marginTop: 22 }}><Text style={{ color: C.sub, textDecorationLine: "underline" }}>Original page kholo</Text></Pressable> : null}
+          </> : <Text style={{ color: C.sub, marginTop: 24 }}>No stream links found for this title. Try another provider.</Text>}
+          {info?.webUrl ? <Pressable onPress={() => Linking.openURL(info.webUrl!)} style={{ marginTop: 22 }}><Text style={{ color: C.sub, textDecorationLine: "underline" }}>Open original page</Text></Pressable> : null}
         </View>}
       </ScrollView>
       <Pressable onPress={() => router.back()} style={[st.back, { top: insets.top + 8 }]} hitSlop={8}><Ionicons name="chevron-back" size={24} color="#fff" /></Pressable>

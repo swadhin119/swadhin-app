@@ -43,7 +43,7 @@ function Hero({ posts, provider }: { posts: Post[]; provider: string }) {
                 </View>
                 <Text style={st.heroTitle} numberOfLines={2}>{item.title}</Text>
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-                  <Btn label="Dekho" icon="play" onPress={() => openDetail(provider, item)} style={{ flex: 1 }} />
+                  <Btn label="Watch" icon="play" onPress={() => openDetail(provider, item)} style={{ flex: 1 }} />
                   <Btn label={saved ? "My List ✓" : "My List"} icon={saved ? "checkmark" : "add"} kind="ghost" style={{ flex: 1 }}
                     onPress={() => toggleWatchlist({ provider, link: item.link, title: item.title, image: item.image })} />
                 </View>
@@ -103,10 +103,10 @@ export default function Home() {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
-        {cat.loading && !cat.data ? <View style={{ height: 420 }}><Loading label="Load ho raha hai…" /></View>
-          : failed ? <View style={{ paddingTop: insets.top + 60 }}><ErrorBox text={failed} onRetry={() => { cat.reload(); posts.reload(); }} /><Btn label="Provider badlo" icon="swap-horizontal" kind="ghost" onPress={() => setSheet(true)} style={{ alignSelf: "center" }} /></View>
+        {cat.loading && !cat.data ? <View style={{ height: 420 }}><Loading label="Loading…" /></View>
+          : failed ? <View style={{ paddingTop: insets.top + 60 }}><ErrorBox text={failed} onRetry={() => { cat.reload(); posts.reload(); }} /><Btn label="Change provider" icon="swap-horizontal" kind="ghost" onPress={() => setSheet(true)} style={{ alignSelf: "center" }} /></View>
           : <>
-            {heroPosts.length ? <Hero key={heroPosts[0].link} posts={heroPosts} provider={provider} /> : (posts.loading || latest.loading) ? <View style={{ height: Math.round(winW * 1.15), backgroundColor: C.card, justifyContent: "center" }}><Loading label="Load ho raha hai…" /></View> : <View style={{ height: insets.top + 70 }} />}
+            {heroPosts.length ? <Hero key={heroPosts[0].link} posts={heroPosts} provider={provider} /> : (posts.loading || latest.loading) ? <View style={{ height: Math.round(winW * 1.15), backgroundColor: C.card, justifyContent: "center" }}><Loading label="Loading…" /></View> : <View style={{ height: insets.top + 70 }} />}
             {hist.length ? <View>
               <SectionHeader title="Continue Watching" />
               <FlatList horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} data={hist} keyExtractor={(h) => h.key}

@@ -44,14 +44,14 @@ export default function Search() {
     <View style={{ flex: 1, paddingTop: insets.top + 8 }}>
       <View style={st.bar}>
         <Ionicons name="search" size={20} color={C.sub} />
-        <TextInput value={q} onChangeText={setQ} placeholder="Movie ya series ka naam…" placeholderTextColor={C.sub} style={st.input}
+        <TextInput value={q} onChangeText={setQ} placeholder="Movie or series name…" placeholderTextColor={C.sub} style={st.input}
           returnKeyType="search" autoCorrect={false} onSubmitEditing={() => setTerm(q.trim())} />
         {q ? <Pressable onPress={() => setQ("")} hitSlop={10}><Ionicons name="close-circle" size={20} color={C.sub} /></Pressable> : null}
       </View>
-      {term.length < 2 ? <Empty icon="search-outline" text="Kuch type karo, results live aayenge" />
+      {term.length < 2 ? <Empty icon="search-outline" text="Type to search, results appear live" />
         : error && !items.length ? <ErrorBox text={error} onRetry={() => load(term, 1)} />
-        : loading && !items.length ? <Loading label="Dhoondh raha hoon…" />
-        : !items.length ? <Empty text={`"${term}" ke liye kuch nahi mila`} />
+        : loading && !items.length ? <Loading label="Searching…" />
+        : !items.length ? <Empty text={`No results for "${term}"`} />
         : <PostGrid posts={items} provider={provider} onOpen={(p) => openDetail(provider, p)} footerLoading={loading}
             onEnd={() => { if (more && !loading) void load(term, page + 1); }} keyboardShouldPersistTaps="handled" />}
     </View>

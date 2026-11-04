@@ -1,6 +1,7 @@
 // Download manager: queue (2 ek saath), parallel parts (direct file), parallel segments (HLS), resume, offline files
 import { useSyncExternalStore } from "react";
 import { Directory, File, FileMode, Paths } from "expo-file-system";
+import * as MediaLibrary from "expo-media-library/legacy";
 import { getJSON, setJSON } from "./storage";
 import { getStreams } from "./engine";
 import { commonHeaders } from "./context";
@@ -12,6 +13,7 @@ export type DlStatus = "queued" | "resolving" | "downloading" | "paused" | "done
 export interface DlItem {
   id: string; provider: string; detailLink: string; title: string; epTitle: string; image: string; type: "movie" | "series"; link: string;
   status: DlStatus; progress: number; bytes: number; total: number; speed: number; path?: string; kind?: string; src?: string; error?: string; t: number;
+  gallery?: "saving" | "saved"; galleryErr?: string;
 }
 const MAX_ACTIVE = 2, PARTS_MIN = 24 * 1024 * 1024, HLS_CONC = 8, MERGE_CHUNK = 8 * 1024 * 1024;
 
@@ -23,6 +25,9 @@ const aborts = new Map<string, AbortController>();
 const speedState = new Map<string, { t: number; b: number }>();
 let saveT: ReturnType<typeof setTimeout> | null = null;
 
+let autoGallery = false;
+export const useAutoGallery = (): boolean => useSyncExternalStore((cb) => { subs.add(cb); return () => subs.delete(cb); }, () => autoGallery);
+export function setAutoGallery(v: boolean) { autoGallery = v; emit(); void setJSON("autoGallery", v); }
 const emit = () => subs.forEach((f) => f());
 const save = () => { if (saveT) return; saveT = setTimeout(() => { saveT = null; void setJSON("downloads", items); }, 1000); };
 const patch = (id: string, p: Partial<DlItem>) => { items = items.map((x) => (x.id === id ? { ...x, ...p } : x)); emit(); save(); };
@@ -31,6 +36,7 @@ export const useDownloads = (): DlItem[] => useSyncExternalStore((cb) => { subs.
 
 export async function loadDownloads() {
   if (loaded) return; loaded = true;
+  autoGallery = await getJSON<boolean>("autoGallery", false);
   const saved = await getJSON<DlItem[]>("downloads", []);
   items = (Array.isArray(saved) ? saved : []).map((x) => (x.status === "downloading" || x.status === "resolving" || x.status === "queued" ? { ...x, status: "paused" as const, speed: 0 } : x));
   emit();
@@ -78,10 +84,10 @@ async function fetchTo(url: string, headers: Record<string, string>, dest: File,
 async function pool<T>(n: number, list: T[], fn: (x: T, i: number) => Promise<void>, signal: AbortSignal) {
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(n, list.length) }, async () => {
-    while (next < list.length) { if (signal.aborted) throw new Error("rok diya"); const i = next++; await fn(list[i], i); }
+    while (next < list.length) { if (signal.aborted) throw new Error("stopped"); const i = next++; await fn(list[i], i); }
   }));
 }
-const needSpace = (total: number) => { try { if (total > 0 && Paths.availableDiskSpace < total + 150 * 1024 * 1024) throw new Error("Phone me jagah kam hai"); } catch (e: any) { if (String(e?.message).includes("jagah")) throw e; } };
+const needSpace = (total: number) => { try { if (total > 0 && Paths.availableDiskSpace < total + 150 * 1024 * 1024) throw new Error("Not enough free space on the phone"); } catch (e: any) { if (String(e?.message).includes("free space")) throw e; } };
 
 // ---------- direct file (mp4 / mkv): parallel parts, nahi to single ----------
 async function downloadDirect(id: string, url: string, headers: Record<string, string>, ext: string, dir: Directory, signal: AbortSignal): Promise<File> {
@@ -96,10 +102,10 @@ async function downloadDirect(id: string, url: string, headers: Record<string, s
       await pool(plan.length, plan, async ([a, b], i) => {
         if (parts[i].exists && parts[i].size === b - a + 1) { got[i] = b - a + 1; return; } // resume: poora part pehle se hai
         await fetchTo(url, { ...headers, Range: `bytes=${a}-${b}` }, parts[i], signal, (w) => { got[i] = w; report(id, got.reduce((x, y) => x + y, 0), total); });
-        if (parts[i].size !== b - a + 1) throw new Error("part adhura aaya");
+        if (parts[i].size !== b - a + 1) throw new Error("part was incomplete");
         got[i] = b - a + 1;
       }, signal);
-      patch(id, { src: "Jod raha hoon…" });
+      patch(id, { src: "Merging…" });
       if (out.exists) out.delete();
       out.create();
       const wh = out.open(FileMode.WriteOnly);
@@ -110,12 +116,12 @@ async function downloadDirect(id: string, url: string, headers: Record<string, s
           part.delete();
         }
       } finally { wh.close(); }
-      if (out.size !== total) throw new Error("joda hua size match nahi hua");
+      if (out.size !== total) throw new Error("merged size mismatch");
       return out;
     } catch (e) {
       if (signal.aborted) throw e;
       try { dir.list().forEach((f) => { try { f.delete(); } catch { /* ignore */ } }); } catch { /* ignore */ } // parallel fail: single connection se try
-      patch(id, { src: "Seedha download…", bytes: 0, progress: 0 });
+      patch(id, { src: "Direct download…", bytes: 0, progress: 0 });
     }
   }
   return fetchTo(url, headers, out, signal, (w) => report(id, w, total));
@@ -134,12 +140,12 @@ async function downloadHls(id: string, url: string, headers: Record<string, stri
   const media = async (u: string, base: string, localName: string) => {
     const t = u === base ? top : await fetchText(u, headers, signal);
     const r = rewriteMedia(t, u, reg);
-    if (r.live || !r.segments) throw new Error("Live / khaali playlist download nahi hoti");
+    if (r.live || !r.segments) throw new Error("Live or empty playlists cannot be downloaded");
     writeText(localName, r.text);
   };
   if (isMaster(top)) {
     const { variants, media: mt } = parseMaster(top, url);
-    const v = pickVariant(variants); if (!v) throw new Error("HLS variant nahi mila");
+    const v = pickVariant(variants); if (!v) throw new Error("No HLS variant found");
     await media(v.uri, url, "v0.m3u8");
     let a = 0; const audioLocal = new Map<string, string>();
     for (const m of mt.filter((x) => x.type === "AUDIO" && x.group === v.audio && x.uri)) { const nm = `a${a++}.m3u8`; await media(m.uri!, url, nm); audioLocal.set(m.uri!, nm); }
@@ -183,14 +189,14 @@ async function runOne(id: string) {
       const list = (await getStreams(provider, link, type)).filter((x) => x.kind !== "embed").sort((a, b) => dlScore(a) - dlScore(b));
       list.forEach((x) => queue.push({ s: x, label: `${label} • ${x.server}` }));
     };
-    try { await load(it.provider, it.link, it.type, "Asli"); } catch { /* fallback chalega */ }
+    try { await load(it.provider, it.link, it.type, "Original"); } catch { /* fallback chalega */ }
     const finder = makeAltFinder(ctx);
-    let lastErr = "Download layak link nahi mila";
+    let lastErr = "No downloadable link found";
     for (let tries = 0; tries < 14; tries++) {
-      if (ac.signal.aborted) throw new Error("rok diya");
+      if (ac.signal.aborted) throw new Error("stopped");
       if (!queue.length) {
         const c = await finder.next(); if (!c) break;
-        patch(id, { src: "Doosra source dhoondh raha hoon…" });
+        patch(id, { src: "Looking for another source…" });
         const x = c.items[c.at]; try { await load(c.provider, x.link, x.type, c.label); } catch { /* agla */ }
         continue;
       }
@@ -199,6 +205,7 @@ async function runOne(id: string) {
       try {
         const { file, kind } = await downloadStream(id, pick.s, dir, ac.signal);
         patch(id, { status: "done", progress: 1, path: file.uri, kind, speed: 0, total: Math.max(get(id)?.total ?? 0, get(id)?.bytes ?? 0) });
+        if (autoGallery && kind !== "hls") void saveToGallery(id);
         return;
       } catch (e: any) {
         if (ac.signal.aborted) throw e;
@@ -236,3 +243,36 @@ export const resume = (id: string) => { patch(id, { status: "queued", error: und
 export const retryDl = (id: string) => { wipe(id); patch(id, { status: "queued", error: undefined, bytes: 0, progress: 0 }); pump(); };
 export function removeDl(id: string) { aborts.get(id)?.abort(); wipe(id); ctxs.delete(id); items = items.filter((x) => x.id !== id); emit(); save(); pump(); }
 export const downloadOf = (provider: string, link: string) => items.find((x) => x.provider === provider && x.link === link && x.status !== "error");
+
+// ---------- gallery ----------
+export const canGallery = (x: DlItem) => x.status === "done" && !!x.path && (x.kind === "mp4" || x.kind === "mkv");
+const niceName = (x: DlItem, ext: string) => {
+  const base = `${x.title}${x.epTitle && x.epTitle !== x.title ? " " + x.epTitle : ""}`.replace(/[^\p{L}\p{N} ._-]+/gu, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "SWADHIN video";
+  return `${base}.${ext}`;
+};
+/** Copies the finished mp4 / mkv into the phone gallery (Movies). Returns a short message to show. */
+export async function saveToGallery(id: string): Promise<string> {
+  const x = get(id);
+  if (!x || x.status !== "done" || !x.path) return "The download is not finished yet";
+  if (x.kind === "hls") return "This download is stored as many small HLS parts, so it cannot be saved to the gallery. It still plays inside the app.";
+  if (x.gallery === "saved") return "Already saved to the gallery";
+  if (x.gallery === "saving") return "Saving to the gallery…";
+  patch(id, { gallery: "saving", galleryErr: undefined });
+  try {
+    const perm = await MediaLibrary.requestPermissionsAsync(true, ["video"]);
+    if (!perm.granted) throw new Error("Gallery permission was denied");
+    let f = new File(x.path);
+    if (!f.exists) throw new Error("The downloaded file is missing");
+    const nice = niceName(x, x.kind === "mkv" ? "mkv" : "mp4");
+    if (f.name !== nice) {
+      try { f.rename(nice); const nf = new File(f.parentDirectory, nice); if (nf.exists) { f = nf; patch(id, { path: nf.uri }); } } catch { /* keep the old name */ }
+    }
+    await MediaLibrary.createAssetAsync(f.uri);
+    patch(id, { gallery: "saved", galleryErr: undefined });
+    return "Saved to the gallery";
+  } catch (e: any) {
+    const m = String(e?.message || e);
+    patch(id, { gallery: undefined, galleryErr: m });
+    return "Could not save to the gallery: " + m;
+  }
+}

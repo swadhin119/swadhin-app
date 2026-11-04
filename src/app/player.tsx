@@ -109,11 +109,11 @@ export default function Player() {
         finder.current = makeAltFinder({ provider: sess.provider, title: sess.title, type: sess.type ?? orig.type, index, items: sess.items, groups: sess.groups, groupIdx: sess.groupIdx });
       }
       const c = await finder.current.next();
-      if (!c) { setExhausted(true); setNote("Koi aur source nahi mila"); return; }
+      if (!c) { setExhausted(true); setNote("No more sources found"); return; }
       startAt.current = lastTime.current > 5 ? lastTime.current : startAt.current;
       setFailed(new Set()); setSel(null); setLoading(true);
       setAlt({ forIndex: index, provider: c.provider, items: c.items, at: c.at });
-      setNote("Source badla: " + c.label);
+      setNote("Source switched: " + c.label);
     } catch { setExhausted(true); } finally { switchingRef.current = false; setSwitching(false); }
   }, [sess, orig, index]);
 
@@ -165,7 +165,13 @@ export default function Player() {
         const o = origRef.current;
         if (sess && o && !/^file:/i.test(o.link) && currentTime > 3) saveProgress({ provider: sess.provider, link: sess.detailLink, title: sess.title, image: sess.image, pos: currentTime, dur: lastDur.current, epTitle: o.title, epLink: o.link, epType: o.type });
       }),
-      player.addListener("playToEnd", () => { if (hasNext) setIndex((i) => i + 1); else router.back(); }),
+      player.addListener("playToEnd", () => {
+        // A broken / ad / "not available" clip ends within seconds: that is NOT a finished movie. Never close the player or skip the episode for it, switch source instead.
+        const d = lastDur.current || player.duration || 0, t = lastTime.current;
+        const real = isLocal || (d >= 120 && t >= d - 25 && t >= 60);
+        if (!real) { lastTime.current = 0; startAt.current = 0; setNote("This stream ended too early, trying another source"); markFailed(); return; }
+        if (hasNext) setIndex((i) => i + 1); else if (router.canGoBack()) router.back();
+      }),
     ];
     return () => subs.forEach((s) => s.remove());
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -232,7 +238,7 @@ export default function Player() {
   }), [player, poke]);
   const frac = scrub ?? (dur > 0 ? Math.min(1, time / dur) : 0);
 
-  if (!sess || !item) return <View style={st.root}><Text style={{ color: C.text, margin: 40 }}>Kuch chalane ko nahi hai.</Text><Pressable onPress={() => router.back()}><Text style={{ color: C.accent, marginLeft: 40 }}>Wapas</Text></Pressable></View>;
+  if (!sess || !item) return <View style={st.root}><Text style={{ color: C.text, margin: 40 }}>Nothing to play.</Text><Pressable onPress={() => router.back()}><Text style={{ color: C.accent, marginLeft: 40 }}>Back</Text></Pressable></View>;
 
   const allFailed = allFailed0;
   const noStreams = noStreams0;
@@ -261,16 +267,16 @@ export default function Player() {
 
       {note ? <View pointerEvents="none" style={st.note}><Text style={st.noteTxt} numberOfLines={2}>{note}</Text></View> : null}
 
-      {(streams.loading || switching || (loading && !embed && !allFailed && !noStreams)) ? <View pointerEvents="none" style={st.center}><ActivityIndicator size="large" color={C.accent} /><Text style={st.hint}>{switching ? "Doosra source dhoondh raha hoon…" : streams.loading ? "Streams dhoondh raha hoon…" : "Buffering…"}</Text></View> : null}
+      {(streams.loading || switching || (loading && !embed && !allFailed && !noStreams)) ? <View pointerEvents="none" style={st.center}><ActivityIndicator size="large" color={C.accent} /><Text style={st.hint}>{switching ? "Looking for another source…" : streams.loading ? "Finding streams…" : "Buffering…"}</Text></View> : null}
 
       {giveUp ? (
         <View style={st.center}>
           <Ionicons name="alert-circle-outline" size={44} color={C.danger} />
-          <Text style={[st.hint, { fontSize: 15, textAlign: "center", maxWidth: 420 }]}>{streams.error ? streams.error : allFailed ? "Koi server nahi chala." : "Is episode ke liye stream nahi mili."}</Text>
+          <Text style={[st.hint, { fontSize: 15, textAlign: "center", maxWidth: 420 }]}>{streams.error ? streams.error : allFailed ? "No server worked." : "No stream found for this episode."}</Text>
           <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-            {allFailed ? <Pressable style={st.pill} onPress={() => { setFailed(new Set()); setSel(null); }}><Text style={st.pillTxt}>Dobara try</Text></Pressable> : <Pressable style={st.pill} onPress={streams.reload}><Text style={st.pillTxt}>Dobara try</Text></Pressable>}
-            {stream ? <Pressable style={st.pill} onPress={() => Linking.openURL(stream.link)}><Text style={st.pillTxt}>Original link kholo</Text></Pressable> : null}
-            <Pressable style={st.pill} onPress={() => router.back()}><Text style={st.pillTxt}>Wapas</Text></Pressable>
+            {allFailed ? <Pressable style={st.pill} onPress={() => { setFailed(new Set()); setSel(null); }}><Text style={st.pillTxt}>Try again</Text></Pressable> : <Pressable style={st.pill} onPress={streams.reload}><Text style={st.pillTxt}>Try again</Text></Pressable>}
+            {stream ? <Pressable style={st.pill} onPress={() => Linking.openURL(stream.link)}><Text style={st.pillTxt}>Open original link</Text></Pressable> : null}
+            <Pressable style={st.pill} onPress={() => router.back()}><Text style={st.pillTxt}>Back</Text></Pressable>
           </View>
         </View>
       ) : null}
@@ -285,7 +291,7 @@ export default function Player() {
             </View>
             {!isLocal ? <Pressable onPress={() => { setExhausted(false); void switchSource(); }} style={st.iconBtn} hitSlop={8}><Ionicons name="shuffle" size={22} color="#fff" /></Pressable> : null}
             {!isLocal && orig ? <Pressable onPress={() => { enqueue({ provider: sess.provider, detailLink: sess.detailLink, title: sess.title, image: sess.image, epTitle: orig.title, type: orig.type, link: orig.link,
-              ctx: { provider: sess.provider, title: sess.title, type: sess.type ?? orig.type, index, items: sess.items, groups: sess.groups, groupIdx: sess.groupIdx } }); setNote("Download shuru • Downloads tab me dekho"); }} style={st.iconBtn} hitSlop={8}><Ionicons name="download-outline" size={22} color="#fff" /></Pressable> : null}
+              ctx: { provider: sess.provider, title: sess.title, type: sess.type ?? orig.type, index, items: sess.items, groups: sess.groups, groupIdx: sess.groupIdx } }); setNote("Download started • see the Downloads tab"); }} style={st.iconBtn} hitSlop={8}><Ionicons name="download-outline" size={22} color="#fff" /></Pressable> : null}
             {(stream?.subtitles?.length ?? 0) > 0 && !embed ? <Pressable onPress={() => { setPanel("subs"); }} style={st.iconBtn} hitSlop={8}><Ionicons name={subIdx >= 0 ? "chatbox-ellipses" : "chatbox-ellipses-outline"} size={22} color="#fff" /></Pressable> : null}
             {(list?.length ?? 0) > 0 ? <Pressable onPress={() => setPanel("servers")} style={st.serverBtn} hitSlop={8}><Ionicons name="server-outline" size={16} color="#fff" /><Text style={st.serverTxt} numberOfLines={1}>{stream ? label(stream) : "Servers"}</Text></Pressable> : null}
           </View>

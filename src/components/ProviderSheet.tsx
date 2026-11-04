@@ -16,7 +16,7 @@ export function ProviderSheet({ visible, onClose }: { visible: boolean; onClose:
       <Pressable style={st.backdrop} onPress={onClose} />
       <View style={st.sheet}>
         <View style={st.grab} />
-        <Text style={st.title}>Provider chuno</Text>
+        <Text style={st.title}>Choose provider</Text>
         {loading && !data ? <Loading /> : error && !data ? <ErrorBox text={error} onRetry={reload} /> : (
           <FlatList data={data} keyExtractor={(p) => p.value} contentContainerStyle={{ paddingBottom: 30 }}
             renderItem={({ item }) => (

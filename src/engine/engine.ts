@@ -54,7 +54,7 @@ const FAST = 18000; // posts / meta / episodes: 18s se zyada intezaar nahi
 // ---------- manifest ----------
 export async function getProviders(): Promise<ProviderInfo[]> {
   return cached("manifest:" + SOURCE, 30 * MIN, async () => {
-    const r = await timeout(fetch(`${SOURCE}/manifest.json`), 12000, "Manifest load nahi hua (internet?)");
+    const r = await timeout(fetch(`${SOURCE}/manifest.json`), 12000, "Could not load the manifest (check internet)");
     if (!r.ok) throw new Error("Manifest HTTP " + r.status);
     const list = (await r.json()) as any[];
     return list.filter((m) => m && !m.disabled && !SKIP.has(m.value)).map((m) => ({ value: m.value, name: m.display_name || m.value, version: String(m.version ?? "0"), icon: m.icon, type: m.type }));
@@ -77,14 +77,14 @@ async function loadModule(p: string, file: string): Promise<Mod | null> {
     pr = (async () => {
       let code = await getJSON<string | null>("code:" + key, null);
       if (!code) {
-        const r = await timeout(fetch(`${SOURCE}/dist/${p}/${file}.js`), 25000, "Provider file load nahi hua");
+        const r = await timeout(fetch(`${SOURCE}/dist/${p}/${file}.js`), 25000, "Could not load the provider file");
         if (r.status === 404) return null; // jaise episodes.js sab providers me nahi hota
         if (!r.ok) throw new Error(`${p}/${file}.js HTTP ${r.status}`);
         code = await r.text();
         await removeKeys(`code:${p}/${file}@`); await setJSON("code:" + key, code); // purane version hata do
       }
       const module = { exports: {} as Mod };
-      const req = (n: string) => { throw new Error(`Provider ne '${n}' maanga, jo yahan available nahi`); };
+      const req = (n: string) => { throw new Error(`Provider needs '${n}', which is not available here`); };
       // eslint-disable-next-line no-new-func
       new Function("module", "exports", "require", "providerGlobal", code)(module, module.exports, req, globalThis);
       return module.exports;
@@ -96,11 +96,11 @@ async function loadModule(p: string, file: string): Promise<Mod | null> {
 }
 async function call<T>(p: string, file: string, fn: string, args: Record<string, unknown>, ms = 45000): Promise<T> {
   const m = await loadModule(p, file);
-  if (!m) throw new Error(`${p} me ${file} nahi hai`);
-  if (typeof m[fn] !== "function") throw new Error(`${p} me ${fn} available nahi hai`);
+  if (!m) throw new Error(`${p} has no ${file}`);
+  if (typeof m[fn] !== "function") throw new Error(`${p} has no ${fn}`);
   const ac = new AbortController();
   try {
-    return await timeout(m[fn]({ ...args, providerValue: p, signal: ac.signal, providerContext: makeContext(p) }), ms, "Provider ne time pe jawab nahi diya");
+    return await timeout(m[fn]({ ...args, providerValue: p, signal: ac.signal, providerContext: makeContext(p) }), ms, "Provider did not respond in time");
   } catch (e) { ac.abort(); throw e; }
 }
 
@@ -173,7 +173,7 @@ export const getLatest2026 = (p: string) =>
       if (!/2026/.test(x.title)) return;
       const k = dedupeKey(x.title); if (seen.has(k)) return; seen.add(k); items.push(x);
     });
-    if (!items.length) throw new Error("2026 ki titles nahi mili"); // empty result cache na ho
+    if (!items.length) throw new Error("No 2026 titles found"); // empty result cache na ho
     const hi = items.filter((x) => isHindi(x.title));
     const base = hi.length >= 4 ? hi : items;
     const isSer2 = (x: Post) => serLinks.has(x.link) || isSeriesTitle(x.title);

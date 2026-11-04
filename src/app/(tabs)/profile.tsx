@@ -25,8 +25,8 @@ export default function Profile() {
 
   const saveSource = () => {
     const v = src.trim();
-    if (v && !/^https?:\/\//i.test(v)) { Alert.alert("Galat URL", "URL http:// ya https:// se shuru hona chahiye."); return; }
-    changeSource(v || DEFAULT_SOURCE); Alert.alert("Ho gaya", "Source badal gaya. Home par wapas jao.");
+    if (v && !/^https?:\/\//i.test(v)) { Alert.alert("Invalid URL", "The URL must start with http:// or https://."); return; }
+    changeSource(v || DEFAULT_SOURCE); Alert.alert("Done", "Source changed. Go back to Home.");
   };
 
   return (
@@ -39,12 +39,12 @@ export default function Profile() {
           <Text style={st.sub}>Active provider</Text>
           <Text style={st.name}>{cur?.name || provider}</Text>
         </View>
-        <Text style={{ color: C.accent, fontWeight: "700" }}>Badlo</Text>
+        <Text style={{ color: C.accent, fontWeight: "700" }}>Change</Text>
       </Pressable>
 
       <SectionHeader title={`My List (${watch.length})`} />
       {watch.length ? <FlatList horizontal data={watch} keyExtractor={(w) => w.provider + w.link} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-        renderItem={({ item }) => <PosterCard post={item} onPress={() => openDetail(item.provider, item)} />} /> : <Empty icon="bookmark-outline" text="Koi title save nahi kiya" />}
+        renderItem={({ item }) => <PosterCard post={item} onPress={() => openDetail(item.provider, item)} />} /> : <Empty icon="bookmark-outline" text="No titles saved" />}
 
       <SectionHeader title="History" />
       {hist.length ? <View style={{ paddingHorizontal: 16, gap: 8 }}>
@@ -59,21 +59,21 @@ export default function Profile() {
             <Pressable hitSlop={10} onPress={() => removeHistory(h.key)}><Ionicons name="close" size={20} color={C.sub} /></Pressable>
           </Pressable>
         ))}
-        <Btn label="History saaf karo" icon="trash-outline" kind="ghost" onPress={() => clearHistory()} style={{ marginTop: 6 }} />
-      </View> : <Empty icon="time-outline" text="Abhi kuch nahi dekha" />}
+        <Btn label="Clear history" icon="trash-outline" kind="ghost" onPress={() => clearHistory()} style={{ marginTop: 6 }} />
+      </View> : <Empty icon="time-outline" text="Nothing watched yet" />}
 
       <SectionHeader title="Advanced" />
       <View style={{ paddingHorizontal: 16 }}>
-        <Text style={st.sub}>Provider source (manifest.json wali folder ka URL)</Text>
+        <Text style={st.sub}>Provider source (URL of the folder containing manifest.json)</Text>
         <TextInput value={src} onChangeText={setSrc} autoCapitalize="none" autoCorrect={false} style={st.input} placeholder={DEFAULT_SOURCE} placeholderTextColor={C.sub} />
         <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
           <Btn label="Save" onPress={saveSource} style={{ flex: 1 }} />
           <Btn label="Default" kind="ghost" onPress={() => { setSrc(DEFAULT_SOURCE); changeSource(DEFAULT_SOURCE); }} style={{ flex: 1 }} />
         </View>
-        <Btn label="Cache saaf karo (providers dobara download)" icon="refresh" kind="ghost" style={{ marginTop: 10 }}
-          onPress={async () => { await clearCaches(); Alert.alert("Ho gaya", "Cache saaf. Home dobara kholo."); }} />
+        <Btn label="Clear cache (re-download providers)" icon="refresh" kind="ghost" style={{ marginTop: 10 }}
+          onPress={async () => { await clearCaches(); Alert.alert("Done", "Cache cleared. Reopen Home."); }} />
         <Text style={[st.sub, { marginTop: 18, lineHeight: 18 }]}>
-          Ye app sirf ek player/browser hai. Content third-party providers se aata hai. Jo kuch dekho, wo apni zimmedari par aur apne desh ke kanoon ke hisaab se dekho.
+          This app is only a player/browser. Content comes from third-party providers. You are responsible for what you watch, in line with the laws of your country.
         </Text>
       </View>
       <ProviderSheet visible={sheet} onClose={() => setSheet(false)} />

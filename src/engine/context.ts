@@ -62,7 +62,7 @@ export function makeContext(provider: string) {
     getBaseUrl: async (key: string) => { try { return (await loadUrls())[key]?.url ?? ""; } catch { return ""; } },
     kvStore: makeKvStore(provider),
     // Cloudflare/WAF browser challenge is app me supported nahi: provider ko saaf error milta hai
-    openWebView: async () => { throw new Error("Is provider ko browser verification (Cloudflare) chahiye, jo ye app abhi support nahi karta. Doosra provider chuno."); },
+    openWebView: async () => { throw new Error("This provider needs browser verification (Cloudflare), which this app does not support yet. Choose another provider."); },
     getCookies: async () => ({}),
   };
 }
