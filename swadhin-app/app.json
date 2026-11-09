@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "SWADHIN",
+    "slug": "swadhin",
+    "version": "1.0.3",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.swadhin.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.swadhin.app",
+      "versionCode": 4,
+      "backgroundColor": "#0b0b10",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "scheme": "swadhin",
+    "backgroundColor": "#0b0b10",
+    "plugins": [
+      "expo-router",
+      "expo-screen-orientation",
+      [
+        "expo-video",
+        {
+          "supportsPictureInPicture": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "granularPermissions": [
+            "video"
+          ]
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
+    "splash": {
+      "backgroundColor": "#0b0b10",
+      "resizeMode": "contain",
+      "image": "./assets/splash-icon.png"
+    },
+    "extra": {
+      "eas": {}
+    }
+  }
+}
