@@ -1,20 +1,13 @@
 {
   "version": 1,
-  "appName": "SWADHIN",
-  "tagline": "",
-  "logoUrl": "",
-  "colors": {
-    "bg": "#0b0b10",
-    "card": "#16161e",
-    "card2": "#1f1f2a",
-    "line": "#2a2a38",
-    "text": "#f4f4f8",
-    "sub": "#9a9ab0",
-    "accent": "#ff5a36",
-    "accent2": "#ffb020"
-  },
-  "updatedAt": 0,
-  "slider": [],
+  "slider": [
+    {
+      "provider": "autoEmbed",
+      "link": "https://v3-cinemeta.strem.io/meta/movie/tt27988879.json",
+      "title": "Ramayana: Rise of a Legend",
+      "image": "https://images.metahub.space/poster/small/tt27988879/img"
+    }
+  ],
   "recommendedTitle": "Recommended for you",
   "recommended": [],
   "sliderAds": [],
@@ -31,5 +24,20 @@
     "enabled": false,
     "text": "",
     "url": ""
-  }
+  },
+  "appName": "SWADHIN",
+  "tagline": "",
+  "logoUrl": "",
+  "logoFile": "",
+  "colors": {
+    "accent": "#ff5a36",
+    "accent2": "#ffb020",
+    "bg": "#0b0b10",
+    "card": "#16161e",
+    "card2": "#1f1f2a",
+    "line": "#2a2a38",
+    "text": "#f4f4f8",
+    "sub": "#9a9ab0"
+  },
+  "updatedAt": 1794339531154
 }
