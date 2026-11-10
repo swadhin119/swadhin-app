@@ -10,6 +10,8 @@ import { useAsync } from "../../lib/useAsync";
 import { Btn, Empty, PosterCard, SectionHeader } from "../../components/ui";
 import { ProviderSheet } from "../../components/ProviderSheet";
 import { openDetail } from "../../lib/nav";
+import Constants from "expo-constants";
+import { CONFIG_URL, brand, checkNow, remote, status, useStatus } from "../../config/remote";
 
 export default function Profile() {
   const insets = useSafeAreaInsets();
@@ -62,6 +64,9 @@ export default function Profile() {
         <Btn label="Clear history" icon="trash-outline" kind="ghost" onPress={() => clearHistory()} style={{ marginTop: 6 }} />
       </View> : <Empty icon="time-outline" text="Nothing watched yet" />}
 
+      <SectionHeader title="App content & updates" />
+      <UpdateBox />
+
       <SectionHeader title="Advanced" />
       <View style={{ paddingHorizontal: 16 }}>
         <Text style={st.sub}>Provider source (URL of the folder containing manifest.json)</Text>
@@ -80,6 +85,29 @@ export default function Profile() {
     </ScrollView>
   );
 }
+/** Shows what this phone downloaded from the admin app, and lets you fetch it again by hand. */
+function UpdateBox() {
+  useStatus();
+  const [busy, setBusy] = useState(false);
+  const when = status.updatedAt ? new Date(status.updatedAt).toLocaleString() : "never";
+  const checked = status.at ? new Date(status.at).toLocaleTimeString() : "not yet";
+  const picks = remote.slider.length, recs = remote.recommended.length, ads = remote.sliderAds.length;
+  return (
+    <View style={{ paddingHorizontal: 16 }}>
+      <View style={{ backgroundColor: C.card, borderRadius: R.l, borderWidth: 1, borderColor: C.line, padding: 14, gap: 4 }}>
+        <Text style={st.name}>{brand.name} · app version {String(Constants.expoConfig?.version || "?")}</Text>
+        <Text style={st.sub}>Content published: {when}</Text>
+        <Text style={st.sub}>Last checked: {checked}{status.ok ? " · ok" : ""}</Text>
+        <Text style={st.sub}>Slider picks {picks} · Recommended {recs} · Slider ads {ads} · Opening ad {remote.openingAd ? "on" : "off"}</Text>
+        {status.error ? <Text style={{ color: C.danger, fontSize: 12.5, marginTop: 6 }}>{status.error}</Text> : null}
+        <Btn label={busy || status.checking ? "Checking…" : "Check for updates now"} icon="cloud-download-outline" style={{ marginTop: 10 }}
+          onPress={async () => { setBusy(true); const ok = await checkNow(); setBusy(false); Alert.alert(ok ? "Up to date" : "Could not check", ok ? "The newest content from the admin app is now loaded. Name, logo and colours only change after closing and reopening the app." : status.error || "Try again."); }} />
+        <Text style={[st.sub, { marginTop: 8 }]} selectable>Source: {CONFIG_URL}</Text>
+      </View>
+    </View>
+  );
+}
+
 const st = StyleSheet.create({
   h1: { color: C.text, fontSize: 28, fontWeight: "900", paddingHorizontal: 16, marginBottom: 14 },
   card: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: 16, padding: 14, borderRadius: R.l, backgroundColor: C.card, borderWidth: 1, borderColor: C.line },

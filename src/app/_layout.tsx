@@ -1,7 +1,7 @@
 import "../lib/desktop";
-import { brand, dismissConfigUpdated, remote, useConfigUpdated } from "../config/remote";
+import { autoCheck, brand, dismissConfigUpdated, remote, useConfigUpdated, useRemote } from "../config/remote";
 import React, { useEffect } from "react";
-import { Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { AppState, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { Stack, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -32,7 +32,13 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 export default function RootLayout() {
   const ready = useApp((s) => s.ready);
   const newLook = useConfigUpdated();
+  useRemote(); // re-render when the admin publishes something new
   useEffect(() => { void hydrate(); void loadDownloads(); }, []);
+  useEffect(() => {
+    autoCheck();
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") autoCheck(); });
+    return () => sub.remove();
+  }, []);
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />

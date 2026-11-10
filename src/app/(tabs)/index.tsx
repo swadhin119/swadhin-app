@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { FlatList, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,7 +13,7 @@ import { useAsync } from "../../lib/useAsync";
 import { Btn, ErrorBox, Loading, PosterCard, SectionHeader, Skeleton, POSTER_W } from "../../components/ui";
 import { ProviderSheet } from "../../components/ProviderSheet";
 import { openDetail } from "../../lib/nav";
-import { brand, remote } from "../../config/remote";
+import { brand, checkNow, remote, useRemote } from "../../config/remote";
 
 type Slide = Post & { ad?: { url: string; cta: string } };
 /** Puts admin-made ads between the movie slides (one ad after every N slides). */
@@ -119,6 +119,7 @@ export default function Home() {
   const first = cat.data?.catalog[0];
   const posts = useAsync(() => getPosts(provider, first!.filter, 1), [provider, first?.filter], !!first);
   const latest = useAsync(() => getLatest2026(provider).catch(() => NO_LATEST), [provider]);
+  useRemote(); // admin content appears without restarting the app
   const manual: Post[] = remote.slider;
   const auto = latest.data?.hero.length ? latest.data.hero : latest.loading ? [] : posts.data?.slice(0, 6) ?? [];
   const heroPosts: Slide[] = useMemo(() => withAds(manual.length ? manual : auto), [manual, auto]);
@@ -126,10 +127,13 @@ export default function Home() {
   const pname = names.data?.find((p) => p.value === provider)?.name || provider;
   const failed = cat.error || posts.error;
   const { width: winW } = useWindowDimensions();
+  const [refreshing, setRefreshing] = useState(false);
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 30 }} showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} tintColor={C.accent} colors={[C.accent]} progressViewOffset={insets.top + 40}
+          onRefresh={async () => { setRefreshing(true); await checkNow(); cat.reload(); posts.reload(); latest.reload(); setRefreshing(false); }} />}>
         {cat.loading && !cat.data ? <View style={{ height: 420 }}><Loading label="Loading…" /></View>
           : failed ? <View style={{ paddingTop: insets.top + 60 }}><ErrorBox text={failed} onRetry={() => { cat.reload(); posts.reload(); }} /><Btn label="Change provider" icon="swap-horizontal" kind="ghost" onPress={() => setSheet(true)} style={{ alignSelf: "center" }} /></View>
           : <>

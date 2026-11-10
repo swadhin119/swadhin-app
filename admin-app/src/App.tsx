@@ -89,6 +89,22 @@ export default function App() {
     } catch (e: any) { setMsg({ t: "err", s: String(e?.message || e) }); } finally { setBusy(""); }
   };
 
+  /** Fetches the config the way the phones do (public raw URL, no token), so a private repo is spotted at once. */
+  const verify = async () => {
+    if (!conn) return;
+    setBusy("Checking…"); setMsg(null);
+    try {
+      const url = `https://raw.githubusercontent.com/${conn.owner}/${conn.repo}/${conn.branch}/${CONFIG_PATH}?t=${Date.now()}`;
+      const r = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
+      if (r.status === 404) { setMsg({ t: "err", s: "The app CANNOT see your settings. Either the repository is private (make it public in GitHub → Settings → General → Change visibility) or app-config.json is missing on this branch." }); return; }
+      if (!r.ok) { setMsg({ t: "err", s: `GitHub answered HTTP ${r.status}. Wait a minute and check again.` }); return; }
+      const j = await r.json();
+      const age = Math.max(0, Math.round((Date.now() - (Number(j.updatedAt) || 0)) / 60000));
+      const mine = Number(j.updatedAt) || 0;
+      setMsg({ t: "ok", s: `The app can see your settings. Published ${mine ? age + " minute(s) ago" : "(no time stamp)"} · name "${j.appName}" · ${(j.slider || []).length} slider picks · ${(j.recommended || []).length} recommended · ${(j.sliderAds || []).length} slider ads · opening ad ${j.openingAd?.enabled ? "on" : "off"}. If a phone still shows the old content, open the app's Profile tab and tap "Check for updates now".` });
+    } catch (e: any) { setMsg({ t: "err", s: "Could not reach GitHub: " + String(e?.message || e) }); } finally { setBusy(""); }
+  };
+
   const rebuild = () => {
     if (!conn) return;
     const run = async () => {
@@ -176,6 +192,7 @@ export default function App() {
             {msg ? <View style={[st.msg, msg.t === "err" ? { borderColor: A.danger } : { borderColor: A.ok }]}><Text style={{ color: msg.t === "err" ? A.danger : A.ok, fontWeight: "700" }}>{msg.s}</Text></View> : null}
 
             <Pressable style={[st.btn, !!busy && { opacity: 0.6 }]} disabled={!!busy} onPress={publish}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={st.btnTxt}>Publish to app</Text>}</Pressable>
+            <Pressable style={[st.btnLite, { marginTop: 12, alignSelf: "flex-start" }, !!busy && { opacity: 0.6 }]} disabled={!!busy} onPress={verify}><Text style={st.btnLiteTxt}>Check what the app sees</Text></Pressable>
             <Text style={st.hint}>Everything on all three tabs is published together. Changes reach the installed app the next time it is opened (no new APK needed).</Text>
 
             <Text style={st.sec}>Launcher name & icon</Text>

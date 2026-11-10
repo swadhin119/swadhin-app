@@ -12,8 +12,8 @@ export interface GestureHandlers {
   onLongPress(active: boolean): void;
   onPinch(scale: number, phase: "start" | "move" | "end"): void;
 }
-export interface GestureFlags { seek: boolean; side: boolean; long: boolean; dbl: boolean; pinch: boolean }
-const SEEK_FULL_WIDTH_SEC = 180; // a swipe across the full width = 3 minutes
+export interface GestureFlags { seek: boolean; side: boolean; long: boolean; dbl: boolean; pinch: boolean; seekSec?: number }
+const SEEK_FULL_WIDTH_SEC = 180; // default: a swipe across the full width = 3 minutes (changeable in settings)
 const LOCK_PX = 16, LONG_MS = 450, DOUBLE_MS = 300;
 
 export function GestureLayer({ handlers, locked, flags }: { handlers: GestureHandlers; locked?: boolean; flags: GestureFlags }) {
@@ -28,7 +28,7 @@ export function GestureLayer({ handlers, locked, flags }: { handlers: GestureHan
     const s = g.current; clearLong();
     if (s.mode === "pinch") { s.mode = "none"; h.current.onPinch(1, "end"); return; }
     if (s.long) { s.long = false; h.current.onLongPress(false); return; }
-    if (s.mode === "h") { h.current.onSeekDrag(cancelled ? 0 : Math.round((dx / size.current.w) * SEEK_FULL_WIDTH_SEC), "end"); return; }
+    if (s.mode === "h") { h.current.onSeekDrag(cancelled ? 0 : Math.round((dx / size.current.w) * (fl.current.seekSec ?? SEEK_FULL_WIDTH_SEC)), "end"); return; }
     if (s.mode === "v") { h.current.onSideDrag(s.side, 0, "end"); return; }
     if (cancelled) return;
     if (isLocked.current) { h.current.onTap(); return; }
@@ -70,7 +70,7 @@ export function GestureLayer({ handlers, locked, flags }: { handlers: GestureHan
         if (Math.abs(gs.dx) > Math.abs(gs.dy)) { if (!fl.current.seek) return; s.mode = "h"; }
         else { if (!fl.current.side) return; s.mode = "v"; s.side = s.x0 < size.current.w / 2 ? "L" : "R"; s.lastDy = gs.dy; }
       }
-      if (s.mode === "h") h.current.onSeekDrag(Math.round((gs.dx / size.current.w) * SEEK_FULL_WIDTH_SEC), "move");
+      if (s.mode === "h") h.current.onSeekDrag(Math.round((gs.dx / size.current.w) * (fl.current.seekSec ?? SEEK_FULL_WIDTH_SEC)), "move");
       else { const inc = -(gs.dy - s.lastDy) / (size.current.h * 0.7); s.lastDy = gs.dy; h.current.onSideDrag(s.side, inc, "move"); }
     },
     onPanResponderRelease: (_e, gs) => finish(gs.dx, false),

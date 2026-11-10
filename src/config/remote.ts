@@ -23,6 +23,15 @@ export const brand = { name: "SWADHIN", tagline: "", logoUrl: "" };
 /** Admin-managed content (manual slider, recommended row, ads, announcement). Filled by applyConfig(). */
 export const remote: { slider: PickItem[]; recommendedTitle: string; recommended: PickItem[]; sliderAds: SliderAd[]; sliderAdEvery: number; openingAd: OpeningAd | null; announcement: Announcement | null } =
   { slider: [], recommendedTitle: "Recommended for you", recommended: [], sliderAds: [], sliderAdEvery: 3, openingAd: null, announcement: null };
+
+// Every screen that shows admin content subscribes here, so a new config appears without restarting the app.
+let ver = 0;
+const rsubs = new Set<() => void>();
+const bump = () => { ver++; rsubs.forEach((f) => f()); };
+export const useRemote = (): number => useSyncExternalStore((cb) => { rsubs.add(cb); return () => rsubs.delete(cb); }, () => ver);
+/** Result of the last check, shown in Settings so it is clear what the phone actually downloaded. */
+export const status = { checking: false, at: 0, ok: false, error: "", updatedAt: 0 };
+export const useStatus = (): number => useRemote();
 const txt = (v: unknown, n: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, "").trim().slice(0, n) : "");
 const https = (v: unknown) => (typeof v === "string" && /^https:\/\//i.test(v.trim()) ? v.trim().slice(0, 800) : "");
 const picks = (v: unknown): PickItem[] => (Array.isArray(v) ? v : []).slice(0, 30).map((x: any) => ({ provider: txt(x?.provider, 60), link: txt(x?.link, 800), title: txt(x?.title, 120), image: https(x?.image) })).filter((x) => x.provider && x.link && x.title);
@@ -48,28 +57,48 @@ export function sanitize(raw: unknown): AppConfig | null {
 }
 
 /** Writes the config into the live theme object and brand info. Must run before the screens are loaded. */
-export function applyConfig(cfg: AppConfig) {
-  Object.assign(C, cfg.colors);
-  if (cfg.appName) brand.name = cfg.appName;
-  brand.tagline = cfg.tagline || "";
-  brand.logoUrl = cfg.logoUrl || "";
+/** Content only (slider, rows, ads, notice). Safe to apply while the app is running. */
+export function applyContent(cfg: AppConfig) {
   remote.slider = cfg.slider || []; remote.recommended = cfg.recommended || [];
   remote.recommendedTitle = cfg.recommendedTitle || "Recommended for you";
   remote.sliderAds = cfg.sliderAds || []; remote.sliderAdEvery = cfg.sliderAdEvery || 3;
   remote.openingAd = cfg.openingAd?.enabled ? cfg.openingAd : null;
   remote.announcement = cfg.announcement?.enabled ? cfg.announcement : null;
+  status.updatedAt = cfg.updatedAt || 0;
+  bump();
 }
+
+/** Colours / name / logo need a restart, so this only runs before the screens are built. */
+export function applyConfig(cfg: AppConfig) {
+  Object.assign(C, cfg.colors);
+  if (cfg.appName) brand.name = cfg.appName;
+  brand.tagline = cfg.tagline || "";
+  brand.logoUrl = cfg.logoUrl || "";
+  applied = cfg;
+  applyContent(cfg);
+}
+/** What the running app is actually showing, to spot a theme change that needs a restart. */
+let applied: AppConfig | null = null;
+const themeOf = (c: AppConfig | null) => JSON.stringify([c?.appName, c?.tagline, c?.logoUrl, c?.colors]);
 
 export async function loadCached(): Promise<AppConfig | null> {
   try { const s = await AsyncStorage.getItem(KEY); return s ? sanitize(JSON.parse(s)) : null; } catch { return null; }
 }
 export async function fetchRemote(timeoutMs: number): Promise<AppConfig | null> {
+  return (await fetchWithReason(timeoutMs)).cfg;
+}
+/** Same fetch, but it says why it failed so Settings can show a useful message. */
+export async function fetchWithReason(timeoutMs: number): Promise<{ cfg: AppConfig | null; error: string }> {
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), timeoutMs);
   try {
     const r = await fetch(`${CONFIG_URL}?t=${Date.now()}`, { signal: ac.signal, headers: { "Cache-Control": "no-cache" } });
-    if (!r.ok) return null;
-    return sanitize(await r.json());
-  } catch { return null; } finally { clearTimeout(t); }
+    if (r.status === 404) return { cfg: null, error: "app-config.json not found. The repository must be public and the file must be on the main branch." };
+    if (!r.ok) return { cfg: null, error: `GitHub answered with HTTP ${r.status}. Try again in a minute.` };
+    const cfg = sanitize(await r.json());
+    return cfg ? { cfg, error: "" } : { cfg: null, error: "The config file is there but could not be read (bad JSON)." };
+  } catch (e: any) {
+    return { cfg: null, error: String(e?.name) === "AbortError" ? "No answer in time. Check the internet connection." : "Could not reach GitHub. Check the internet connection." };
+  } finally { clearTimeout(t); }
 }
 
 // "a newer look was downloaded" notice for the UI
@@ -80,13 +109,31 @@ export const dismissConfigUpdated = () => { updated = false; subs.forEach((f) =>
 const same = (a: AppConfig | null, b: AppConfig | null) => JSON.stringify(a) === JSON.stringify(b);
 
 async function refresh(cached: AppConfig | null, timeoutMs: number): Promise<AppConfig | null> {
-  const fresh = await fetchRemote(timeoutMs);
-  if (!fresh) return cached;
+  const { cfg: fresh, error } = await fetchWithReason(timeoutMs);
+  status.checking = false; status.at = Date.now(); status.ok = !!fresh; status.error = error;
+  if (!fresh) { bump(); return cached; }
   if (!same(fresh, cached)) {
     try { await AsyncStorage.setItem(KEY, JSON.stringify(fresh)); } catch { /* ignore */ }
-    if (cached) { updated = true; subs.forEach((f) => f()); }
+    applyContent(fresh); // slider, rows, ads and the notice appear at once
+    if (applied && themeOf(fresh) !== themeOf(applied)) { updated = true; subs.forEach((f) => f()); } // name / logo / colours need a restart
   }
+  bump();
   return fresh;
+}
+
+/** "Check for updates now" button, and the automatic check when the app comes back to the front. */
+export async function checkNow(): Promise<boolean> {
+  if (status.checking) return false;
+  status.checking = true; status.error = ""; bump();
+  const cached = await loadCached();
+  const out = await refresh(cached, 12000);
+  return !!out;
+}
+let lastAuto = 0;
+export function autoCheck() {
+  const now = Date.now();
+  if (now - lastAuto < 60000 || status.checking) return; // at most once a minute
+  lastAuto = now; void checkNow();
 }
 
 /** Called once at app start. Applies the cached config at once; first launch waits briefly for the online one. */

@@ -6,6 +6,7 @@ import { remote } from "../config/remote";
 import { getJSON, setJSON } from "../engine/storage";
 
 const KEY = "openAd.state";
+const START = Date.now(); // an ad that arrives later must not interrupt browsing
 interface St { id: string; day: string; seen: number }
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -23,7 +24,7 @@ export function OpeningAd() {
       const s = await getJSON<St>(KEY, { id: "", day: "", seen: 0 });
       const same = s.id === ad.id;
       const ok = ad.frequency === "always" || (ad.frequency === "once" ? !(same && s.seen > 0) : !(same && s.day === today()));
-      if (!ok || dead) return;
+      if (!ok || dead || Date.now() - START > 25000) return;
       await setJSON(KEY, { id: ad.id, day: today(), seen: (same ? s.seen : 0) + 1 });
       setLeft(ad.skipAfter); setShow(true);
     })();

@@ -22,7 +22,7 @@ import { getJSON, setJSON } from "../engine/storage";
 import { GestureLayer, type GestureHandlers } from "../player/GestureLayer";
 import { SeekBar } from "../player/SeekBar";
 import { Panel, type Item, type Orient, type PanelActions, type PanelData, type PanelTab, type Timer } from "../player/Panel";
-import { loadPrefs, setPrefs, usePrefs } from "../player/prefs";
+import { getPrefs, loadPrefs, resetPrefs, setPrefs, usePrefs } from "../player/prefs";
 
 const label = (s: Stream) => `${s.server}${s.quality ? " • " + s.quality + (/p$/i.test(s.quality) ? "" : "p") : ""} • ${s.kind.toUpperCase()}`;
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -76,6 +76,7 @@ export default function Player() {
   const [locked, setLocked] = useState(false);
   const [speed, setSpeedState] = useState(1);
   const [boost, setBoost] = useState(false);
+  const [muted, setMuted] = useState(false);
   const [hud, setHud] = useState<null | { kind: "bright" | "vol"; v: number }>(null);
   const [seekDrag, setSeekDrag] = useState<number | null>(null);
   const [timer, setTimerState] = useState<Timer>("off");
@@ -110,7 +111,14 @@ export default function Player() {
 
   const player = useVideoPlayer(null, (p) => { p.timeUpdateEventInterval = 0.25; p.preservesPitch = true; });
 
-  useEffect(() => { void loadPrefs(); }, []);
+  useEffect(() => {
+    void loadPrefs().then(() => {
+      const p = getPrefs();
+      if (p.rememberSpeed && p.savedSpeed !== 1) { try { player.playbackRate = p.savedSpeed; } catch { /* ignore */ } setSpeedState(p.savedSpeed); }
+      if (p.rememberBright && p.savedBright > 0 && Platform.OS !== "web") { brightRef.current = p.savedBright; void Brightness.setBrightnessAsync(p.savedBright).catch(() => {}); }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- orientation: landscape lock (or auto-rotate when the user turns that on) ----
   useEffect(() => {
@@ -130,7 +138,7 @@ export default function Player() {
   useEffect(() => {
     if (!sess || !item) return;
     const h = getState().history[itemKey(sess.provider, sess.detailLink)];
-    startAt.current = h?.epLink === item.link && h.pos > 5 && (!h.dur || h.pos < h.dur - 30) ? h.pos : 0;
+    startAt.current = getPrefs().autoResume && h?.epLink === item.link && h.pos > 5 && (!h.dur || h.pos < h.dur - 30) ? h.pos : 0;
     setSel(null); setFailed(new Set()); setTime(0); setDur(0); setBuffered(0); setLoading(true); setSubSel("off"); setCues([]); setPanel(null); setSubDelay(0);
     setAudioTracks([]); setSubTracks([]); setCurAudio(null); setLocalSubs([]); setAb({ a: null, b: null }); setSubBusy("");
     finder.current = null; setExhausted(false); setNote("");
@@ -324,7 +332,8 @@ export default function Player() {
   const poke = useCallback(() => {
     setShown(true);
     if (hideT.current) clearTimeout(hideT.current);
-    hideT.current = setTimeout(() => setShown(false), 3800);
+    const sec = prefsRef.current.hideSec;
+    if (sec > 0) hideT.current = setTimeout(() => setShown(false), sec * 1000);
   }, []);
   useEffect(() => { poke(); return () => { [hideT, hudT, flashT].forEach((r) => { if (r.current) clearTimeout(r.current); }); }; }, [poke]);
   useEffect(() => { if ((!playing || panel) && hideT.current) clearTimeout(hideT.current); }, [playing, panel]);
@@ -333,7 +342,15 @@ export default function Player() {
   const seekBy = (d: number) => { try { player.currentTime = clamp(lastTime.current + d, 0, lastDur.current || 1e9); } catch { /* ignore */ } };
   const togglePlay = () => { if (player.playing) player.pause(); else player.play(); poke(); };
   const flash = (side: "L" | "R") => { setSeekFlash(side); if (flashT.current) clearTimeout(flashT.current); flashT.current = setTimeout(() => setSeekFlash(null), 600); };
-  const setSpeed = (n: number) => { player.playbackRate = n; setSpeedState(n); };
+  const setSpeed = (n: number) => { player.playbackRate = n; setSpeedState(n); if (prefs.rememberSpeed) setPrefs({ savedSpeed: n }); };
+  const toggleMute = () => { const m = !muted; setMuted(m); try { player.muted = m; } catch { /* ignore */ } setNote(m ? "Muted" : "Sound on"); poke(); };
+  const frameStep = (dir: 1 | -1) => { try { player.pause(); } catch { /* ignore */ } seekBy(dir / 24); };
+  const jumpTo = (t: number) => { try { player.currentTime = clamp(t, 0, lastDur.current || 1e9); } catch { /* ignore */ } setPanel(null); poke(); };
+  const setBright = (v: number | null) => {
+    if (Platform.OS === "web") return;
+    if (v == null) { void Brightness.restoreSystemBrightnessAsync?.().catch(() => {}); setPrefs({ savedBright: 0 }); setNote("Brightness: system"); return; }
+    brightRef.current = v; void Brightness.setBrightnessAsync(v).catch(() => {}); if (prefs.rememberBright) setPrefs({ savedBright: v }); setNote("Brightness " + Math.round(v * 100) + "%");
+  };
   const showHud = (kind: "bright" | "vol", v: number) => { setHud({ kind, v }); if (hudT.current) clearTimeout(hudT.current); hudT.current = setTimeout(() => setHud(null), 900); };
 
   // ---- gestures ----
@@ -341,7 +358,7 @@ export default function Player() {
     onTap: () => { if (locked) { setShown(true); if (hideT.current) clearTimeout(hideT.current); hideT.current = setTimeout(() => setShown(false), 2500); } else if (shown) setShown(false); else poke(); },
     onDoubleTap: (zone) => {
       if (locked) return;
-      if (zone === "C") togglePlay(); else { seekBy(zone === "L" ? -skip : skip); flash(zone); }
+      if (zone === "C") { if (prefsRef.current.dblAction === "play") togglePlay(); } else { seekBy(zone === "L" ? -skip : skip); flash(zone); }
     },
     onSeekDrag: (delta, phase) => {
       if (phase === "move") { setSeekDrag(delta); return; }
@@ -351,7 +368,7 @@ export default function Player() {
     onSideDrag: (side, inc, phase) => {
       if (phase === "end") return;
       if (side === "L") {
-        const v = clamp(brightRef.current + inc, 0.02, 1); brightRef.current = v; showHud("bright", v);
+        const v = clamp(brightRef.current + inc, 0.02, 1); brightRef.current = v; showHud("bright", v); if (prefsRef.current.rememberBright) setPrefs({ savedBright: v });
         if (Platform.OS !== "web") void Brightness.setBrightnessAsync(v).catch(() => {});
       } else {
         const v = clamp(volRef.current + inc); volRef.current = v; showHud("vol", v);
@@ -365,7 +382,7 @@ export default function Player() {
       if (zoomT.current) clearTimeout(zoomT.current); zoomT.current = setTimeout(() => setZoomTxt(""), 900);
     },
     onLongPress: (active) => {
-      if (active) { player.playbackRate = 2; setBoost(true); } else { player.playbackRate = speedRef.current; setBoost(false); }
+      if (active) { player.playbackRate = prefsRef.current.holdSpeed; setBoost(true); } else { player.playbackRate = speedRef.current; setBoost(false); }
     },
   };
 
@@ -407,7 +424,7 @@ export default function Player() {
     ["Type", stream ? stream.kind.toUpperCase() : "-"], ["Source", isLocal ? "Downloaded file" : host], ["Duration", fmtTime(dur)], ["Buffered up to", fmtTime(buffered)], ["Speed", speed + "x"],
     ["Audio tracks", String(audioTracks.length || 1)], ["Subtitles", String(subTracks.length + (stream?.subtitles?.length ?? 0) + localSubs.length)], ["Picture", prefs.aspect], ["Zoom", Math.round(zoom * 100) + "%"],
   ];
-  const panelData: PanelData = { tab: panel ?? "servers", servers: serverItems, speed, audio: audioItems, subs: subItems, subDelay, prefs, orient, zoom, timer, ab, bookmarks, info, subBusy,
+  const panelData: PanelData = { tab: panel ?? "servers", servers: serverItems, speed, audio: audioItems, subs: subItems, subDelay, prefs, orient, zoom, timer, ab, bookmarks, info, subBusy, muted,
     episodes: (sess?.items ?? []).map((x, i) => ({ key: String(i), text: `${i + 1}. ${x.title || "Episode"}`, active: i === index })), canExternal: Platform.OS === "android" && !!stream && stream.kind !== "embed" && !isLocal };
   const panelActions: PanelActions = {
     tab: setPanel, close: () => { setPanel(null); poke(); },
@@ -417,6 +434,9 @@ export default function Player() {
     setA, setB, clearAB: () => { setAb({ a: null, b: null }); setNote("A–B repeat cleared"); }, addBookmark, jump: (t) => { try { player.currentTime = t; } catch { /* ignore */ } setPanel(null); poke(); },
     delBookmark: (t) => saveBookmarks(bookmarks.filter((x) => x !== t)), episode: (k) => { setPanel(null); setIndex(Number(k)); },
     loadSubFile: () => { void loadSubFile(); }, loadSubUrl: (u) => { void loadSubUrl(u); }, external,
+    setZoom: (n: number) => { zoomRef.current = n; setZoom(n); setZoomTxt(Math.round(n * 100) + "%"); if (zoomT.current) clearTimeout(zoomT.current); zoomT.current = setTimeout(() => setZoomTxt(""), 900); },
+    playFromStart: () => { try { player.currentTime = 0; player.play(); } catch { /* ignore */ } setPanel(null); poke(); },
+    jumpTo, frameStep, toggleMute, setBright, resetAll: () => { resetPrefs(); setSpeed(1); setNote("Player settings reset"); },
   };
 
   if (!sess || !item) return <View style={st.root}><Text style={{ color: C.text, margin: 40 }}>Nothing to play.</Text><Pressable onPress={() => router.back()}><Text style={{ color: C.accent, marginLeft: 40 }}>Back</Text></Pressable></View>;
@@ -443,18 +463,18 @@ export default function Player() {
           mediaPlaybackRequiresUserAction={false} setSupportMultipleWindows={false} onShouldStartLoadWithRequest={(r) => !/^(intent|market):/i.test(r.url)} />
       ) : (
         <>
-          <View pointerEvents="none" style={[StyleSheet.absoluteFill, { transform: [{ scale: zoom }] }]}><VideoView ref={videoRef} player={player} style={boxStyle} nativeControls={false} contentFit={fit}
+          <View pointerEvents="none" style={[StyleSheet.absoluteFill, { transform: [{ rotate: prefs.rotate + "deg" }, { scaleX: prefs.flipH ? -1 : 1 }, { scaleY: prefs.flipV ? -1 : 1 }, { scale: zoom * (prefs.rotate % 180 ? Math.min(width, height) / Math.max(width, height) : 1) }] }]}><VideoView ref={videoRef} player={player} style={boxStyle} nativeControls={false} contentFit={fit}
             allowsPictureInPicture startsPictureInPictureAutomatically={playing} onPictureInPictureStart={() => setPip(true)} onPictureInPictureStop={() => setPip(false)} /></View>
-          {!pip ? <GestureLayer handlers={gestures} locked={locked} flags={{ seek: prefs.gSeek, side: prefs.gSide, long: prefs.gLong, dbl: prefs.gDouble, pinch: prefs.gPinch }} /> : null}
+          {!pip ? <GestureLayer handlers={gestures} locked={locked} flags={{ seek: prefs.gSeek, side: prefs.gSide, long: prefs.gLong, dbl: prefs.gDouble, pinch: prefs.gPinch, seekSec: prefs.seekSec }} /> : null}
           {seekFlash ? <View pointerEvents="none" style={[st.flash, seekFlash === "L" ? { left: width * 0.12 } : { right: width * 0.12 }]}><Ionicons name={seekFlash === "L" ? "play-back" : "play-forward"} size={30} color="#fff" /><Text style={st.flashTxt}>{skip}s</Text></View> : null}
-          {subText && !pip ? <View pointerEvents="none" style={[st.subWrap, { bottom: (showCtl ? 112 : 0) + prefs.subBottom }]}><Text style={[st.sub, { fontSize: 18 * prefs.subScale, color: prefs.subColor, fontWeight: prefs.subBold ? "700" : "400", backgroundColor: `rgba(0,0,0,${prefs.subBgAlpha})` }, subShadow]}>{subText}</Text></View> : null}
+          {subText && !pip ? <View pointerEvents="none" style={[st.subWrap, { bottom: (showCtl ? 112 : 0) + prefs.subBottom }]}><Text style={[st.sub, { fontSize: 18 * prefs.subScale, color: prefs.subColor, fontWeight: prefs.subBold ? "700" : "400", fontFamily: prefs.subFont, backgroundColor: `rgba(0,0,0,${prefs.subBgAlpha})` }, subShadow]}>{subText}</Text></View> : null}
         </>
       )}
 
       {note && !pip ? <View pointerEvents="none" style={st.note}><Text style={st.noteTxt} numberOfLines={2}>{note}</Text></View> : null}
       {prefs.night ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(255,150,40,.22)" }]} /> : null}
       {zoomTxt ? <View pointerEvents="none" style={st.note}><Text style={st.noteTxt}>Zoom {zoomTxt}</Text></View> : null}
-      {boost ? <View pointerEvents="none" style={st.boost}><Ionicons name="play-forward" size={16} color="#fff" /><Text style={st.boostTxt}>2x speed</Text></View> : null}
+      {boost ? <View pointerEvents="none" style={st.boost}><Ionicons name="play-forward" size={16} color="#fff" /><Text style={st.boostTxt}>{prefs.holdSpeed}x speed</Text></View> : null}
       {seekDrag != null ? <View pointerEvents="none" style={st.dragBox}><Text style={st.dragBig}>{(seekDrag >= 0 ? "+" : "−") + Math.abs(seekDrag) + "s"}</Text><Text style={st.dragSm}>{fmtTime(target)} / {fmtTime(dur)}</Text></View> : null}
       {hud ? (
         <View pointerEvents="none" style={[st.hud, hud.kind === "bright" ? { left: 36 } : { right: 36 }]}>
@@ -524,6 +544,8 @@ export default function Player() {
                   <Pressable onPress={() => { const n: Orient = orient === "land" ? "auto" : orient === "auto" ? "port" : "land"; setOrient(n); setNote("Orientation: " + (n === "land" ? "landscape" : n === "port" ? "portrait" : "auto-rotate")); poke(); }} style={st.tool} hitSlop={6}><Ionicons name={orient === "auto" ? "sync-outline" : "phone-landscape-outline"} size={19} color="#fff" /></Pressable>
                   <Pressable onPress={() => setPanel("tools")} style={st.tool} hitSlop={6}><Ionicons name="construct-outline" size={19} color={ab.a != null ? C.accent : "#fff"} /></Pressable>
                   <Pressable onPress={() => { const n = prefs.aspect === "fit" ? "fill" : prefs.aspect === "fill" ? "stretch" : "fit"; setPrefs({ aspect: n }); poke(); }} style={st.tool} hitSlop={6}><Ionicons name="expand-outline" size={19} color="#fff" /></Pressable>
+                  <Pressable onPress={toggleMute} style={st.tool} hitSlop={6}><Ionicons name={muted ? "volume-mute" : "volume-high-outline"} size={19} color={muted ? C.accent : "#fff"} /></Pressable>
+                  {prefs.showClock ? <Text style={[st.toolTxt, { alignSelf: "center", marginLeft: 6, opacity: 0.8 }]}>{new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
                   {endsAt ? <Text style={[st.toolTxt, { alignSelf: "center", marginLeft: 6, opacity: 0.8 }]}>Ends {endsAt}</Text> : null}
                   <Pressable onPress={() => setPanel("timer")} style={st.tool} hitSlop={6}><Ionicons name="moon-outline" size={19} color={timer === "off" ? "#fff" : C.accent} /></Pressable>
                   <View style={{ flex: 1 }} />
