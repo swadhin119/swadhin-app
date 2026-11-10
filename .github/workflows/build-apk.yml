@@ -3,6 +3,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - app-config.json
+      - app-logo.*
+      - admin-app/**
+      - desktop/**
+      - '**.md'
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -13,6 +19,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - run: npm install
+      - run: node scripts/apply-config.cjs
       - run: npx expo prebuild --platform android --no-install
       - run: cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4

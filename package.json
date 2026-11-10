@@ -1,18 +1,22 @@
 {
   "name": "swadhin-app",
   "version": "1.0.0",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "dependencies": {
+    "@expo/metro-runtime": "~58.0.17",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "axios": "^1.21.0",
     "cheerio": "^1.2.0",
     "expo": "~58.0.21",
+    "expo-brightness": "~58.0.2",
     "expo-build-properties": "~58.0.11",
     "expo-constants": "~58.0.14",
     "expo-crypto": "~58.0.7",
+    "expo-document-picker": "~58.0.4",
     "expo-file-system": "~58.0.13",
     "expo-image": "~58.0.18",
+    "expo-intent-launcher": "~58.0.3",
     "expo-keep-awake": "~58.0.3",
     "expo-linear-gradient": "~58.0.3",
     "expo-linking": "~58.0.15",
@@ -23,6 +27,7 @@
     "expo-status-bar": "~58.0.4",
     "expo-system-ui": "~58.0.7",
     "expo-video": "~58.0.13",
+    "hls.js": "^1.5.20",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
@@ -30,6 +35,7 @@
     "react-native-reanimated": "^4.7.1",
     "react-native-safe-area-context": "~5.10.1",
     "react-native-screens": "~4.30.0",
+    "react-native-web": "~0.21.4",
     "react-native-webview": "^14.0.1",
     "react-native-worklets": "^0.13.0"
   },
@@ -42,7 +48,10 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "desktop:prep": "esbuild src/engine/dlutil.ts --bundle --platform=node --format=cjs --outfile=desktop/dlutil.cjs --log-level=error",
+    "desktop:web": "expo export --platform web --output-dir desktop/dist",
+    "desktop:build": "npm run desktop:prep && npm run desktop:web"
   },
   "private": true,
   "overrides": {

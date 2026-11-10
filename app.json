@@ -2,7 +2,7 @@
   "expo": {
     "name": "SWADHIN",
     "slug": "swadhin",
-    "version": "1.0.3",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -19,7 +19,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.swadhin.app",
-      "versionCode": 4,
+      "versionCode": 6,
       "backgroundColor": "#0b0b10",
       "permissions": [
         "INTERNET",
@@ -27,13 +27,22 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
     },
     "scheme": "swadhin",
     "backgroundColor": "#0b0b10",
     "plugins": [
       "expo-router",
       "expo-screen-orientation",
+      [
+        "expo-video",
+        {
+          "supportsPictureInPicture": true,
+          "supportsBackgroundPlayback": true
+        }
+      ],
       [
         "expo-media-library",
         {

@@ -39,6 +39,7 @@ function Row({ d }: { d: DlItem }) {
         {d.status !== "done" ? <View style={st.bar}><View style={[st.fill, { width: `${Math.round(d.progress * 100)}%` }]} /></View> : null}
       </View>
       <View style={{ gap: 4 }}>
+        {Platform.OS === "web" && d.status === "done" && d.path ? <Pressable hitSlop={8} style={st.btn} onPress={() => (window as any).desktop?.show?.(d.path)}><Ionicons name="folder-open-outline" size={18} color={C.text} /></Pressable> : null}
         {canGallery(d) ? <Pressable hitSlop={8} style={st.btn} onPress={async () => toast(await saveToGallery(d.id))}>
           {d.gallery === "saved" ? <Ionicons name="checkmark-circle" size={20} color="#3ddc84" /> : <Ionicons name={d.gallery === "saving" ? "hourglass-outline" : "images-outline"} size={18} color={C.text} />}
         </Pressable> : null}
@@ -58,13 +59,13 @@ export default function Downloads() {
   return (
     <View style={{ flex: 1, paddingTop: insets.top + 12 }}>
       <Text style={st.h1}>Downloads</Text>
-      <View style={st.autoRow}>
+      {Platform.OS !== "web" ? <View style={st.autoRow}>
         <View style={{ flex: 1 }}>
           <Text style={st.autoTitle}>Auto-save to gallery</Text>
           <Text style={st.autoSub}>Copy each finished mp4 / mkv download into your phone gallery. Uses extra storage.</Text>
         </View>
         <Switch value={auto} onValueChange={setAutoGallery} trackColor={{ true: C.accent, false: C.line }} thumbColor="#fff" />
-      </View>
+      </View> : <Text style={[st.autoSub, { marginHorizontal: 16, marginTop: 6 }]}>Finished downloads are saved in your Videos\SWADHIN folder.</Text>}
       {list.length ? <FlatList data={list} keyExtractor={(d) => d.id} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }} renderItem={({ item }) => <Row d={item} />} />
         : <Empty icon="download-outline" text={"No downloads yet.\nStart one with the download button on any movie or episode."} />}
     </View>
