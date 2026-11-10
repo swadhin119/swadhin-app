@@ -1,0 +1,21 @@
+name: Build Windows App
+on:
+  workflow_dispatch:
+jobs:
+  win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm install
+      - run: npm run desktop:build
+      - run: npm install
+        working-directory: desktop
+      - run: npx electron-builder --win --publish never
+        working-directory: desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swadhin-windows
+          path: |
+            desktop/release/*.exe
