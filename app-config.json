@@ -30,8 +30,8 @@
   "logoUrl": "",
   "logoFile": "",
   "colors": {
-    "accent": "#ff5a36",
-    "accent2": "#ffb020",
+    "accent": "#ffffff",
+    "accent2": "#22c55e",
     "bg": "#0b0b10",
     "card": "#16161e",
     "card2": "#1f1f2a",
@@ -39,5 +39,5 @@
     "text": "#f4f4f8",
     "sub": "#9a9ab0"
   },
-  "updatedAt": 1794339531154
+  "updatedAt": 1794339622802
 }
