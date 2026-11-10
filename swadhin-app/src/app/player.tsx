@@ -6,6 +6,8 @@ import { StatusBar } from "expo-status-bar";
 import { useKeepAwake } from "expo-keep-awake";
 import * as ScreenOrientation from "expo-screen-orientation";
 import * as Brightness from "expo-brightness";
+import * as DocumentPicker from "expo-document-picker";
+import * as IntentLauncher from "expo-intent-launcher";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "../theme";
@@ -15,10 +17,11 @@ import { enqueue } from "../engine/downloads";
 import type { Stream } from "../engine/types";
 import { getSession, getState, itemKey, saveProgress } from "../state/store";
 import { useAsync } from "../lib/useAsync";
-import { cueAt, fmtTime, parseSubtitles, type Cue } from "../lib/subtitles";
+import { cueAt, decodeSubtitleBytes, fmtTime, parseSubtitles, type Cue } from "../lib/subtitles";
+import { getJSON, setJSON } from "../engine/storage";
 import { GestureLayer, type GestureHandlers } from "../player/GestureLayer";
 import { SeekBar } from "../player/SeekBar";
-import { Panel, type Item, type PanelTab, type Timer } from "../player/Panel";
+import { Panel, type Item, type Orient, type PanelActions, type PanelData, type PanelTab, type Timer } from "../player/Panel";
 import { loadPrefs, setPrefs, usePrefs } from "../player/prefs";
 
 const label = (s: Stream) => `${s.server}${s.quality ? " • " + s.quality + (/p$/i.test(s.quality) ? "" : "p") : ""} • ${s.kind.toUpperCase()}`;
@@ -28,7 +31,7 @@ const trackLabel = (t: { label: string; language: string; name?: string }, i: nu
 export default function Player() {
   useKeepAwake();
   const sess = getSession();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const prefs = usePrefs();
   const [index, setIndex] = useState(sess?.index ?? 0);
   // auto-fallback: until it plays, switch to another drive / quality / provider automatically
@@ -57,9 +60,17 @@ export default function Player() {
   const [loading, setLoading] = useState(true);
   const [scrub, setScrub] = useState<number | null>(null);
   const [seekFlash, setSeekFlash] = useState<null | "L" | "R">(null);
-  const [subIdx, setSubIdx] = useState(-1);
+  const [subSel, setSubSel] = useState("off"); // "off" | "x<i>" stream | "f<i>" loaded file/link | "e<i>" built-in
   const [cues, setCues] = useState<Cue[]>([]);
   const [subDelay, setSubDelay] = useState(0);
+  const [localSubs, setLocalSubs] = useState<{ title: string; cues: Cue[] }[]>([]);
+  const [subBusy, setSubBusy] = useState("");
+  const [orient, setOrient] = useState<Orient>("land");
+  const [zoom, setZoom] = useState(1);
+  const [zoomTxt, setZoomTxt] = useState("");
+  const [ab, setAb] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
+  const [bookmarks, setBookmarks] = useState<number[]>([]);
+  const [now, setNow] = useState(Date.now());
 
   // pro-player state
   const [locked, setLocked] = useState(false);
@@ -68,12 +79,10 @@ export default function Player() {
   const [hud, setHud] = useState<null | { kind: "bright" | "vol"; v: number }>(null);
   const [seekDrag, setSeekDrag] = useState<number | null>(null);
   const [timer, setTimerState] = useState<Timer>("off");
-  const [autoRotate, setAutoRotate] = useState(false);
   const [pip, setPip] = useState(false);
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
   const [curAudio, setCurAudio] = useState<AudioTrack | null>(null);
   const [subTracks, setSubTracks] = useState<SubtitleTrack[]>([]);
-  const [curSub, setCurSub] = useState<SubtitleTrack | null>(null);
 
   const [switching, setSwitching] = useState(false);
   const [exhausted, setExhausted] = useState(false);
@@ -92,6 +101,11 @@ export default function Player() {
   const brightRef = useRef(0.5);
   const volRef = useRef(1);
   const endTimerRef = useRef(false);
+  const abRef = useRef(ab); abRef.current = ab;
+  const zoomRef = useRef(1); const zoomBase = useRef(1); const zoomT = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localSubsRef = useRef(localSubs); localSubsRef.current = localSubs;
+  const lastSubSel = useRef("off");
+  const prefsRef = useRef(prefs); prefsRef.current = prefs;
   const videoRef = useRef<VideoView>(null);
 
   const player = useVideoPlayer(null, (p) => { p.timeUpdateEventInterval = 0.25; p.preservesPitch = true; });
@@ -100,8 +114,9 @@ export default function Player() {
 
   // ---- orientation: landscape lock (or auto-rotate when the user turns that on) ----
   useEffect(() => {
-    void ScreenOrientation.lockAsync(autoRotate ? ScreenOrientation.OrientationLock.DEFAULT : ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-  }, [autoRotate]);
+    const O = ScreenOrientation.OrientationLock;
+    void ScreenOrientation.lockAsync(orient === "auto" ? O.DEFAULT : orient === "port" ? O.PORTRAIT_UP : O.LANDSCAPE).catch(() => {});
+  }, [orient]);
   useEffect(() => () => {
     void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     if (Platform.OS !== "web") void Brightness.restoreSystemBrightnessAsync?.().catch(() => {});
@@ -116,8 +131,8 @@ export default function Player() {
     if (!sess || !item) return;
     const h = getState().history[itemKey(sess.provider, sess.detailLink)];
     startAt.current = h?.epLink === item.link && h.pos > 5 && (!h.dur || h.pos < h.dur - 30) ? h.pos : 0;
-    setSel(null); setFailed(new Set()); setTime(0); setDur(0); setBuffered(0); setLoading(true); setSubIdx(-1); setCues([]); setPanel(null); setSubDelay(0);
-    setAudioTracks([]); setSubTracks([]); setCurAudio(null); setCurSub(null);
+    setSel(null); setFailed(new Set()); setTime(0); setDur(0); setBuffered(0); setLoading(true); setSubSel("off"); setCues([]); setPanel(null); setSubDelay(0);
+    setAudioTracks([]); setSubTracks([]); setCurAudio(null); setLocalSubs([]); setAb({ a: null, b: null }); setSubBusy("");
     finder.current = null; setExhausted(false); setNote("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index]);
@@ -177,7 +192,7 @@ export default function Player() {
     if (!stream || stream.kind === "embed") { try { player.pause(); } catch { /* ignore */ } return; }
     let dead = false;
     setLoading(true);
-    player.replaceAsync({ uri: stream.link, headers: stream.headers, contentType: stream.kind === "hls" ? "hls" : "auto" })
+    player.replaceAsync({ uri: stream.link, headers: stream.headers, contentType: stream.kind === "hls" ? "hls" : "auto", metadata: { title: sess?.title, artist: item?.title } })
       .then(() => { if (!dead) { player.playbackRate = speedRef.current; player.play(); } })
       .catch(() => { if (!dead) markFailed(); });
     return () => { dead = true; };
@@ -192,7 +207,7 @@ export default function Player() {
           started.current = true; setLoading(false);
           if (startAt.current > 2) { const at = startAt.current; player.currentTime = at; startAt.current = 0; setNote("Resumed from " + fmtTime(at)); }
           player.playbackRate = speedRef.current;
-          try { setAudioTracks([...player.availableAudioTracks]); setCurAudio(player.audioTrack); setSubTracks([...player.availableSubtitleTracks]); setCurSub(player.subtitleTrack); } catch { /* not supported */ }
+          try { setAudioTracks([...player.availableAudioTracks]); setCurAudio(player.audioTrack); setSubTracks([...player.availableSubtitleTracks]); } catch { /* not supported */ }
           player.play();
         } else if (status === "loading") setLoading(true);
         else if (status === "error") markFailed();
@@ -203,6 +218,8 @@ export default function Player() {
         const d = player.duration; if (d > 0 && d !== lastDur.current) { lastDur.current = d; setDur(d); }
         try { const b = player.bufferedPosition; if (b >= 0) setBuffered(b); } catch { /* ignore */ }
         if (currentTime > 0.5) { started.current = true; setLoading(false); }
+        const { a: A, b: B } = abRef.current;
+        if (A != null && B != null && currentTime >= B) { try { player.currentTime = A; } catch { /* ignore */ } }
         const o = origRef.current;
         if (sess && o && !/^file:/i.test(o.link) && currentTime > 3) saveProgress({ provider: sess.provider, link: sess.detailLink, title: sess.title, image: sess.image, pos: currentTime, dur: lastDur.current, epTitle: o.title, epLink: o.link, epType: o.type });
       }),
@@ -212,12 +229,15 @@ export default function Player() {
         const real = isLocal || (d >= 120 && t >= d - 25 && t >= 60);
         if (!real) { lastTime.current = 0; startAt.current = 0; setNote("This stream ended too early, trying another source"); markFailed(); return; }
         if (endTimerRef.current) { endTimerRef.current = false; setTimerState("off"); setNote("Sleep timer: stopped after this episode"); return; }
-        if (hasNext) setIndex((i) => i + 1); else if (router.canGoBack()) router.back();
+        const pf = prefsRef.current;
+        if (hasNext && !pf.autoNext) { setNote("Episode finished"); return; }
+        if (hasNext) setIndex((i) => i + 1);
+        else if (pf.repeat === "all" && (sess?.items.length ?? 0) > 1) setIndex(0);
+        else if (router.canGoBack()) router.back();
       }),
       player.addListener("availableAudioTracksChange", (e: any) => setAudioTracks([...(e.availableAudioTracks || [])])),
       player.addListener("audioTrackChange", (e: any) => setCurAudio(e.audioTrack ?? null)),
       player.addListener("availableSubtitleTracksChange", (e: any) => setSubTracks([...(e.availableSubtitleTracks || [])])),
-      player.addListener("subtitleTrackChange", (e: any) => setCurSub(e.subtitleTrack ?? null)),
     ];
     return () => subs.forEach((s) => s.remove());
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -233,20 +253,56 @@ export default function Player() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---- external subtitles: English by default, others from the list ----
+  // ---- subtitles ----
   useEffect(() => {
     const subs = stream?.subtitles || [];
-    const en = subs.findIndex((s) => /^en/i.test(s.language || "") || /english/i.test(s.title));
-    setSubIdx(en);
+    const en = subs.findIndex((x) => /^en/i.test(x.language || "") || /english/i.test(x.title));
+    setSubSel((cur) => (cur.startsWith("f") || cur.startsWith("e") ? cur : en >= 0 ? "x" + en : "off"));
   }, [stream?.id]);
   useEffect(() => {
-    const sub = stream?.subtitles?.[subIdx];
+    if (subSel[0] === "f") { setCues(localSubsRef.current[Number(subSel.slice(1))]?.cues ?? []); return; }
+    const sub = subSel[0] === "x" ? stream?.subtitles?.[Number(subSel.slice(1))] : undefined;
     if (!sub) { setCues([]); return; }
     let dead = false;
-    fetch(sub.uri, { headers: stream?.headers }).then((r) => r.text()).then((t) => { if (!dead) setCues(parseSubtitles(t)); }).catch(() => { if (!dead) setCues([]); });
+    fetch(sub.uri, { headers: stream?.headers }).then((r) => r.arrayBuffer()).then((buf) => { if (!dead) setCues(parseSubtitles(decodeSubtitleBytes(new Uint8Array(buf)))); }).catch(() => { if (!dead) setCues([]); });
     return () => { dead = true; };
-  }, [stream?.id, subIdx]);
+  }, [stream?.id, subSel, localSubs]);
   const subText = useMemo(() => (cues.length ? cueAt(cues, time - subDelay) : ""), [cues, time, subDelay]);
+  const addLocalSub = (title: string, parsed: Cue[]) => {
+    const n = [...localSubsRef.current, { title, cues: parsed }];
+    localSubsRef.current = n; setLocalSubs(n); setSubSel("f" + (n.length - 1)); lastSubSel.current = "f" + (n.length - 1); setSubDelay(0); setSubBusy("Loaded: " + title);
+  };
+  const loadSubFile = async () => {
+    try {
+      const r = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: true, multiple: false });
+      if (r.canceled || !r.assets?.[0]) return;
+      const asset = r.assets[0]; setSubBusy("Reading " + asset.name + "…");
+      const buf = await (await fetch(asset.uri)).arrayBuffer();
+      const parsed = parseSubtitles(decodeSubtitleBytes(new Uint8Array(buf)));
+      if (!parsed.length) { setSubBusy("Could not read any subtitles from " + asset.name + " (use .srt, .vtt or .ass)"); return; }
+      addLocalSub(asset.name, parsed);
+    } catch (e: any) { setSubBusy("Could not open the file: " + String(e?.message || e)); }
+  };
+  const loadSubUrl = async (url: string) => {
+    try {
+      setSubBusy("Downloading subtitles…");
+      const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status);
+      const parsed = parseSubtitles(decodeSubtitleBytes(new Uint8Array(await r.arrayBuffer())));
+      if (!parsed.length) { setSubBusy("That link has no readable subtitles (use .srt, .vtt or .ass)"); return; }
+      addLocalSub(url.split("/").pop()?.split("?")[0] || "Online subtitles", parsed);
+    } catch (e: any) { setSubBusy("Could not download: " + String(e?.message || e)); }
+  };
+  const pickSub = (k: string) => {
+    try { player.subtitleTrack = k[0] === "e" ? subTracks[Number(k.slice(1))] ?? null : null; } catch { /* ignore */ }
+    if (k !== "off") lastSubSel.current = k;
+    setSubSel(k);
+  };
+  const toggleCC = () => {
+    if (subSel !== "off") { pickSub("off"); setNote("Subtitles off"); return; }
+    const first = lastSubSel.current !== "off" ? lastSubSel.current : (stream?.subtitles?.length ? "x0" : localSubsRef.current.length ? "f0" : subTracks.length ? "e0" : "off");
+    if (first === "off") { setPanel("subs"); setNote("No subtitles found: load one from your device or a link"); return; }
+    pickSub(first); setNote("Subtitles on");
+  };
 
   // ---- sleep timer ----
   useEffect(() => {
@@ -255,6 +311,14 @@ export default function Player() {
     const t = setTimeout(() => { try { player.pause(); } catch { /* ignore */ } setTimerState("off"); setNote("Sleep timer: paused"); }, timer * 60000);
     return () => clearTimeout(t);
   }, [timer, player]);
+
+  // ---- repeat one, background play ----
+  useEffect(() => { try { player.loop = prefs.repeat === "one"; } catch { /* ignore */ } }, [prefs.repeat, player]);
+  useEffect(() => { try { player.staysActiveInBackground = prefs.background; player.showNowPlayingNotification = prefs.background; } catch { /* ignore */ } }, [prefs.background, player]);
+  const bmKey = sess && item ? `bookmarks:${sess.provider}|${item.link}` : "";
+  useEffect(() => { setBookmarks([]); if (!bmKey) return; void getJSON<number[]>(bmKey, []).then((l) => setBookmarks(Array.isArray(l) ? l : [])); }, [bmKey]);
+  const saveBookmarks = (l: number[]) => { setBookmarks(l); if (bmKey) void setJSON(bmKey, l); };
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 20000); return () => clearInterval(t); }, []);
 
   // ---- controls auto-hide ----
   const poke = useCallback(() => {
@@ -265,6 +329,7 @@ export default function Player() {
   useEffect(() => { poke(); return () => { [hideT, hudT, flashT].forEach((r) => { if (r.current) clearTimeout(r.current); }); }; }, [poke]);
   useEffect(() => { if ((!playing || panel) && hideT.current) clearTimeout(hideT.current); }, [playing, panel]);
 
+  const skip = prefs.skipSec;
   const seekBy = (d: number) => { try { player.currentTime = clamp(lastTime.current + d, 0, lastDur.current || 1e9); } catch { /* ignore */ } };
   const togglePlay = () => { if (player.playing) player.pause(); else player.play(); poke(); };
   const flash = (side: "L" | "R") => { setSeekFlash(side); if (flashT.current) clearTimeout(flashT.current); flashT.current = setTimeout(() => setSeekFlash(null), 600); };
@@ -276,7 +341,7 @@ export default function Player() {
     onTap: () => { if (locked) { setShown(true); if (hideT.current) clearTimeout(hideT.current); hideT.current = setTimeout(() => setShown(false), 2500); } else if (shown) setShown(false); else poke(); },
     onDoubleTap: (zone) => {
       if (locked) return;
-      if (zone === "C") togglePlay(); else { seekBy(zone === "L" ? -10 : 10); flash(zone); }
+      if (zone === "C") togglePlay(); else { seekBy(zone === "L" ? -skip : skip); flash(zone); }
     },
     onSeekDrag: (delta, phase) => {
       if (phase === "move") { setSeekDrag(delta); return; }
@@ -293,11 +358,18 @@ export default function Player() {
         try { player.volume = v; } catch { /* ignore */ }
       }
     },
+    onPinch: (scale, phase) => {
+      if (phase === "start") { zoomBase.current = zoomRef.current; return; }
+      if (phase === "end") { if (zoomRef.current < 1.04) { zoomRef.current = 1; setZoom(1); } return; }
+      const z = clamp(zoomBase.current * scale, 1, 4); zoomRef.current = z; setZoom(z); setZoomTxt(Math.round(z * 100) + "%");
+      if (zoomT.current) clearTimeout(zoomT.current); zoomT.current = setTimeout(() => setZoomTxt(""), 900);
+    },
     onLongPress: (active) => {
       if (active) { player.playbackRate = 2; setBoost(true); } else { player.playbackRate = speedRef.current; setBoost(false); }
     },
   };
 
+  const resetZoom = () => { zoomRef.current = 1; setZoom(1); };
   const startPip = () => { if (isPictureInPictureSupported()) void videoRef.current?.startPictureInPicture().catch(() => {}); else setNote("Picture-in-picture is not supported on this device"); };
 
   // ---- desktop keyboard (web build only) ----
@@ -306,8 +378,8 @@ export default function Player() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null; if (t && /^(input|textarea)$/i.test(t.tagName)) return;
       if (e.code === "Space" || e.key === "k") { e.preventDefault(); togglePlay(); }
-      else if (e.key === "ArrowLeft") { seekBy(-10); flash("L"); poke(); }
-      else if (e.key === "ArrowRight") { seekBy(10); flash("R"); poke(); }
+      else if (e.key === "ArrowLeft") { seekBy(-skip); flash("L"); poke(); }
+      else if (e.key === "ArrowRight") { seekBy(skip); flash("R"); poke(); }
       else if (e.key === "f" || e.key === "F") { const d: any = document; if (d.fullscreenElement) void d.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
     };
     window.addEventListener("keydown", onKey);
@@ -316,21 +388,36 @@ export default function Player() {
   }, []);
 
   // ---- panel data ----
-  const serverItems: Item[] = (list || []).map((s) => ({ key: s.id, text: label(s), active: s.id === sel, dim: failed.has(s.id) }));
+  const serverItems: Item[] = (list || []).map((x) => ({ key: x.id, text: label(x), active: x.id === sel, dim: failed.has(x.id) }));
   const audioItems: Item[] = audioTracks.length > 1 ? audioTracks.map((t, i) => ({ key: String(i), text: trackLabel(t, i), active: !!curAudio && (curAudio.id ? curAudio.id === t.id : curAudio.label === t.label && curAudio.language === t.language) })) : [];
   const subItems: Item[] = [
-    { key: "off", text: "Off", active: subIdx < 0 && !curSub },
-    ...subTracks.map((t, i) => ({ key: "e" + i, text: trackLabel(t, i) + " (built-in)", active: !!curSub && (curSub.id ? curSub.id === t.id : curSub.label === t.label && curSub.language === t.language) })),
-    ...(stream?.subtitles || []).map((s, i) => ({ key: "x" + i, text: s.title || s.language || "Track " + (i + 1), active: i === subIdx && !curSub })),
+    { key: "off", text: "Off", active: subSel === "off" },
+    ...subTracks.map((t, i) => ({ key: "e" + i, text: trackLabel(t, i) + " (built-in)", active: subSel === "e" + i })),
+    ...(stream?.subtitles || []).map((x, i) => ({ key: "x" + i, text: x.title || x.language || "Track " + (i + 1), active: subSel === "x" + i })),
+    ...localSubs.map((x, i) => ({ key: "f" + i, text: "File: " + x.title, active: subSel === "f" + i })),
   ];
-  const pickSub = (k: string) => {
-    try {
-      if (k === "off") { setSubIdx(-1); player.subtitleTrack = null; }
-      else if (k[0] === "e") { setSubIdx(-1); player.subtitleTrack = subTracks[Number(k.slice(1))] ?? null; }
-      else { player.subtitleTrack = null; setSubIdx(Number(k.slice(1))); }
-    } catch { /* ignore */ }
-  };
   const pickAudio = (k: string) => { try { player.audioTrack = audioTracks[Number(k)] ?? null; } catch { /* ignore */ } };
+  const addBookmark = () => { const t = Math.floor(lastTime.current); if (t < 1) return; if (bookmarks.some((x) => Math.abs(x - t) < 2)) { setNote("Bookmark already there"); return; } saveBookmarks([...bookmarks, t].sort((x, y) => x - y)); setNote("Bookmark added at " + fmtTime(t)); };
+  const setA = () => { const t = lastTime.current; setAb((v) => ({ a: t, b: v.b != null && v.b > t ? v.b : null })); setNote("A set at " + fmtTime(t)); };
+  const setB = () => { const t = lastTime.current; if (ab.a == null) { setNote("Set A first"); return; } if (t <= ab.a + 1) { setNote("B must be after A"); return; } setAb({ a: ab.a, b: t }); setNote("Looping " + fmtTime(ab.a) + " – " + fmtTime(t)); };
+  const external = () => { if (stream) IntentLauncher.startActivityAsync("android.intent.action.VIEW", { data: stream.link, type: "video/*" }).catch(() => setNote("No other video player found on this phone")); };
+  const host = (() => { try { return stream ? new URL(stream.link).host : "-"; } catch { return "-"; } })();
+  const info: [string, string][] = [
+    ["Title", sess?.title ?? "-"], ["Episode", item?.title || "-"], ["Provider", prov], ["Server", stream?.server ?? "-"], ["Quality", stream?.quality ? stream.quality + (/p$/i.test(stream.quality) ? "" : "p") : "-"],
+    ["Type", stream ? stream.kind.toUpperCase() : "-"], ["Source", isLocal ? "Downloaded file" : host], ["Duration", fmtTime(dur)], ["Buffered up to", fmtTime(buffered)], ["Speed", speed + "x"],
+    ["Audio tracks", String(audioTracks.length || 1)], ["Subtitles", String(subTracks.length + (stream?.subtitles?.length ?? 0) + localSubs.length)], ["Picture", prefs.aspect], ["Zoom", Math.round(zoom * 100) + "%"],
+  ];
+  const panelData: PanelData = { tab: panel ?? "servers", servers: serverItems, speed, audio: audioItems, subs: subItems, subDelay, prefs, orient, zoom, timer, ab, bookmarks, info, subBusy,
+    episodes: (sess?.items ?? []).map((x, i) => ({ key: String(i), text: `${i + 1}. ${x.title || "Episode"}`, active: i === index })), canExternal: Platform.OS === "android" && !!stream && stream.kind !== "embed" && !isLocal };
+  const panelActions: PanelActions = {
+    tab: setPanel, close: () => { setPanel(null); poke(); },
+    server: (k) => { startAt.current = lastTime.current > 5 ? lastTime.current : startAt.current; setFailed((f) => { const n = new Set(f); n.delete(k); return n; }); setSel(k); setPanel(null); },
+    speed: setSpeed, audio: pickAudio, sub: pickSub, subDelay: setSubDelay, prefs: setPrefs, orient: (o) => { setOrient(o); setNote("Orientation: " + (o === "land" ? "landscape" : o === "port" ? "portrait" : "auto-rotate")); },
+    resetZoom, timer: (t) => { setTimerState(t); setNote(t === "off" ? "Sleep timer off" : t === "end" ? "Will stop after this episode" : "Sleep timer: " + t + " min"); setPanel(null); },
+    setA, setB, clearAB: () => { setAb({ a: null, b: null }); setNote("A–B repeat cleared"); }, addBookmark, jump: (t) => { try { player.currentTime = t; } catch { /* ignore */ } setPanel(null); poke(); },
+    delBookmark: (t) => saveBookmarks(bookmarks.filter((x) => x !== t)), episode: (k) => { setPanel(null); setIndex(Number(k)); },
+    loadSubFile: () => { void loadSubFile(); }, loadSubUrl: (u) => { void loadSubUrl(u); }, external,
+  };
 
   if (!sess || !item) return <View style={st.root}><Text style={{ color: C.text, margin: 40 }}>Nothing to play.</Text><Pressable onPress={() => router.back()}><Text style={{ color: C.accent, marginLeft: 40 }}>Back</Text></Pressable></View>;
 
@@ -341,7 +428,12 @@ export default function Player() {
   const showCtl = !pip && !locked && (shown || embed || giveUp);
   const target = seekDrag != null ? clamp(lastTime.current + seekDrag, 0, lastDur.current || 1e9) : 0;
   const remaining = dur > 0 ? dur - time : 0;
-  const fit = prefs.aspect === "fill" ? "cover" : prefs.aspect === "stretch" ? "fill" : "contain";
+  const ratio = prefs.aspect === "16:9" ? 16 / 9 : prefs.aspect === "4:3" ? 4 / 3 : prefs.aspect === "21:9" ? 21 / 9 : 0;
+  const fit = ratio ? "fill" : prefs.aspect === "fill" ? "cover" : prefs.aspect === "stretch" ? "fill" : "contain";
+  const bw = ratio ? Math.min(width, height * ratio) : width, bh = ratio ? Math.min(height, width / ratio) : height;
+  const boxStyle = ratio ? { position: "absolute" as const, left: (width - bw) / 2, top: (height - bh) / 2, width: bw, height: bh } : StyleSheet.absoluteFill;
+  const subShadow = prefs.subOutline ? { textShadowColor: "#000", textShadowRadius: 4, textShadowOffset: { width: 0, height: 0 } } : {};
+  const endsAt = dur > 0 && playing ? new Date(now + ((dur - time) / Math.max(speed, 0.1)) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 
   return (
     <View style={st.root}>
@@ -351,15 +443,17 @@ export default function Player() {
           mediaPlaybackRequiresUserAction={false} setSupportMultipleWindows={false} onShouldStartLoadWithRequest={(r) => !/^(intent|market):/i.test(r.url)} />
       ) : (
         <>
-          <VideoView ref={videoRef} player={player} style={StyleSheet.absoluteFill} nativeControls={false} contentFit={fit}
-            allowsPictureInPicture startsPictureInPictureAutomatically={playing} onPictureInPictureStart={() => setPip(true)} onPictureInPictureStop={() => setPip(false)} />
-          {!pip ? <GestureLayer handlers={gestures} locked={locked} /> : null}
-          {seekFlash ? <View pointerEvents="none" style={[st.flash, seekFlash === "L" ? { left: width * 0.12 } : { right: width * 0.12 }]}><Ionicons name={seekFlash === "L" ? "play-back" : "play-forward"} size={30} color="#fff" /><Text style={st.flashTxt}>10s</Text></View> : null}
-          {subText && !pip ? <View pointerEvents="none" style={[st.subWrap, showCtl && { bottom: 112 }]}><Text style={[st.sub, { fontSize: 18 * prefs.subScale }, !prefs.subBg && { backgroundColor: "transparent" }]}>{subText}</Text></View> : null}
+          <View pointerEvents="none" style={[StyleSheet.absoluteFill, { transform: [{ scale: zoom }] }]}><VideoView ref={videoRef} player={player} style={boxStyle} nativeControls={false} contentFit={fit}
+            allowsPictureInPicture startsPictureInPictureAutomatically={playing} onPictureInPictureStart={() => setPip(true)} onPictureInPictureStop={() => setPip(false)} /></View>
+          {!pip ? <GestureLayer handlers={gestures} locked={locked} flags={{ seek: prefs.gSeek, side: prefs.gSide, long: prefs.gLong, dbl: prefs.gDouble, pinch: prefs.gPinch }} /> : null}
+          {seekFlash ? <View pointerEvents="none" style={[st.flash, seekFlash === "L" ? { left: width * 0.12 } : { right: width * 0.12 }]}><Ionicons name={seekFlash === "L" ? "play-back" : "play-forward"} size={30} color="#fff" /><Text style={st.flashTxt}>{skip}s</Text></View> : null}
+          {subText && !pip ? <View pointerEvents="none" style={[st.subWrap, { bottom: (showCtl ? 112 : 0) + prefs.subBottom }]}><Text style={[st.sub, { fontSize: 18 * prefs.subScale, color: prefs.subColor, fontWeight: prefs.subBold ? "700" : "400", backgroundColor: `rgba(0,0,0,${prefs.subBgAlpha})` }, subShadow]}>{subText}</Text></View> : null}
         </>
       )}
 
       {note && !pip ? <View pointerEvents="none" style={st.note}><Text style={st.noteTxt} numberOfLines={2}>{note}</Text></View> : null}
+      {prefs.night ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(255,150,40,.22)" }]} /> : null}
+      {zoomTxt ? <View pointerEvents="none" style={st.note}><Text style={st.noteTxt}>Zoom {zoomTxt}</Text></View> : null}
       {boost ? <View pointerEvents="none" style={st.boost}><Ionicons name="play-forward" size={16} color="#fff" /><Text style={st.boostTxt}>2x speed</Text></View> : null}
       {seekDrag != null ? <View pointerEvents="none" style={st.dragBox}><Text style={st.dragBig}>{(seekDrag >= 0 ? "+" : "−") + Math.abs(seekDrag) + "s"}</Text><Text style={st.dragSm}>{fmtTime(target)} / {fmtTime(dur)}</Text></View> : null}
       {hud ? (
@@ -397,7 +491,7 @@ export default function Player() {
             {!isLocal && orig ? <Pressable onPress={() => { enqueue({ provider: sess.provider, detailLink: sess.detailLink, title: sess.title, image: sess.image, epTitle: orig.title, type: orig.type, link: orig.link,
               ctx: { provider: sess.provider, title: sess.title, type: sess.type ?? orig.type, index, items: sess.items, groups: sess.groups, groupIdx: sess.groupIdx } }); setNote("Download started • see the Downloads tab"); }} style={st.iconBtn} hitSlop={8}><Ionicons name="download-outline" size={22} color="#fff" /></Pressable> : null}
             {!isLocal ? <Pressable onPress={() => { setExhausted(false); void switchSource(); }} style={st.iconBtn} hitSlop={8}><Ionicons name="shuffle" size={22} color="#fff" /></Pressable> : null}
-            {!embed ? <Pressable onPress={() => setPanel("subs")} style={st.iconBtn} hitSlop={8}><Ionicons name={subIdx >= 0 || curSub ? "chatbox-ellipses" : "chatbox-ellipses-outline"} size={22} color="#fff" /></Pressable> : null}
+            {!embed ? <Pressable onPress={toggleCC} onLongPress={() => setPanel("subs")} style={st.iconBtn} hitSlop={8}><Ionicons name={subSel !== "off" ? "chatbox-ellipses" : "chatbox-ellipses-outline"} size={22} color="#fff" /></Pressable> : null}
             {!embed && Platform.OS === "android" ? <Pressable onPress={startPip} style={st.iconBtn} hitSlop={8}><Ionicons name="albums-outline" size={22} color="#fff" /></Pressable> : null}
             <Pressable onPress={() => setPanel("servers")} style={st.iconBtn} hitSlop={8}><Ionicons name="settings-outline" size={22} color="#fff" /></Pressable>
           </View>
@@ -406,9 +500,9 @@ export default function Player() {
             <>
               <View style={st.mid} pointerEvents="box-none">
                 <Pressable onPress={() => hasPrev && setIndex((i) => i - 1)} disabled={!hasPrev} style={[st.iconBtn, !hasPrev && { opacity: 0.25 }]}><Ionicons name="play-skip-back" size={28} color="#fff" /></Pressable>
-                <Pressable onPress={() => { seekBy(-10); poke(); }} style={st.iconBtn}><Ionicons name="play-back" size={28} color="#fff" /></Pressable>
+                <Pressable onPress={() => { seekBy(-skip); poke(); }} style={st.iconBtn}><Ionicons name="play-back" size={28} color="#fff" /></Pressable>
                 <Pressable onPress={togglePlay} style={st.playBtn}><Ionicons name={playing ? "pause" : "play"} size={38} color="#fff" /></Pressable>
-                <Pressable onPress={() => { seekBy(10); poke(); }} style={st.iconBtn}><Ionicons name="play-forward" size={28} color="#fff" /></Pressable>
+                <Pressable onPress={() => { seekBy(skip); poke(); }} style={st.iconBtn}><Ionicons name="play-forward" size={28} color="#fff" /></Pressable>
                 <Pressable onPress={() => hasNext && setIndex((i) => i + 1)} disabled={!hasNext} style={[st.iconBtn, !hasNext && { opacity: 0.25 }]}><Ionicons name="play-skip-forward" size={28} color="#fff" /></Pressable>
               </View>
 
@@ -420,14 +514,17 @@ export default function Player() {
                   <Text style={st.time}>{fmtTime(scrub != null ? scrub * dur : time)}</Text>
                   <SeekBar time={time} dur={dur} buffered={buffered} scrub={scrub} onScrub={(f) => { setScrub(f); if (f != null && hideT.current) clearTimeout(hideT.current); }}
                     onCommit={(f) => { if (lastDur.current > 0) player.currentTime = f * lastDur.current; poke(); }} />
-                  <Text style={st.time}>{fmtTime(dur)}</Text>
+                  <Pressable onPress={() => setPrefs({ remaining: !prefs.remaining })}><Text style={st.time}>{prefs.remaining && dur > 0 ? "-" + fmtTime(Math.max(0, dur - time)) : fmtTime(dur)}</Text></Pressable>
                 </View>
                 <View style={st.toolRow}>
                   <Pressable onPress={() => { setLocked(true); setShown(false); setNote("Controls locked"); }} style={st.tool} hitSlop={6}><Ionicons name="lock-open-outline" size={19} color="#fff" /></Pressable>
                   <Pressable onPress={() => setPanel("speed")} style={st.tool} hitSlop={6}><Ionicons name="speedometer-outline" size={19} color="#fff" /><Text style={st.toolTxt}>{speed === 1 ? "1x" : speed + "x"}</Text></Pressable>
                   <Pressable onPress={() => { const n = prefs.aspect === "fit" ? "fill" : prefs.aspect === "fill" ? "stretch" : "fit"; setPrefs({ aspect: n }); setNote("Picture: " + (n === "fit" ? "Fit" : n === "fill" ? "Fill (crop)" : "Stretch")); poke(); }} style={st.tool} hitSlop={6}><Ionicons name="expand-outline" size={19} color="#fff" /><Text style={st.toolTxt}>{prefs.aspect === "fit" ? "Fit" : prefs.aspect === "fill" ? "Fill" : "Stretch"}</Text></Pressable>
                   <Pressable onPress={() => setPanel("audio")} style={st.tool} hitSlop={6}><Ionicons name="musical-notes-outline" size={19} color="#fff" /></Pressable>
-                  <Pressable onPress={() => { setAutoRotate((v) => !v); setNote(autoRotate ? "Locked to landscape" : "Auto-rotate on"); poke(); }} style={st.tool} hitSlop={6}><Ionicons name={autoRotate ? "sync-outline" : "phone-landscape-outline"} size={19} color="#fff" /></Pressable>
+                  <Pressable onPress={() => { const n: Orient = orient === "land" ? "auto" : orient === "auto" ? "port" : "land"; setOrient(n); setNote("Orientation: " + (n === "land" ? "landscape" : n === "port" ? "portrait" : "auto-rotate")); poke(); }} style={st.tool} hitSlop={6}><Ionicons name={orient === "auto" ? "sync-outline" : "phone-landscape-outline"} size={19} color="#fff" /></Pressable>
+                  <Pressable onPress={() => setPanel("tools")} style={st.tool} hitSlop={6}><Ionicons name="construct-outline" size={19} color={ab.a != null ? C.accent : "#fff"} /></Pressable>
+                  <Pressable onPress={() => { const n = prefs.aspect === "fit" ? "fill" : prefs.aspect === "fill" ? "stretch" : "fit"; setPrefs({ aspect: n }); poke(); }} style={st.tool} hitSlop={6}><Ionicons name="expand-outline" size={19} color="#fff" /></Pressable>
+                  {endsAt ? <Text style={[st.toolTxt, { alignSelf: "center", marginLeft: 6, opacity: 0.8 }]}>Ends {endsAt}</Text> : null}
                   <Pressable onPress={() => setPanel("timer")} style={st.tool} hitSlop={6}><Ionicons name="moon-outline" size={19} color={timer === "off" ? "#fff" : C.accent} /></Pressable>
                   <View style={{ flex: 1 }} />
                   {(list?.length ?? 0) > 0 ? <Pressable onPress={() => setPanel("servers")} style={st.serverBtn} hitSlop={6}><Ionicons name="server-outline" size={15} color="#fff" /><Text style={st.serverTxt} numberOfLines={1}>{stream ? label(stream) : "Servers"}</Text></Pressable> : null}
@@ -439,13 +536,7 @@ export default function Player() {
       ) : null}
 
       {panel ? (
-        <Panel tab={panel} onTab={setPanel} onClose={() => { setPanel(null); poke(); }}
-          servers={serverItems} onServer={(k) => { startAt.current = lastTime.current > 5 ? lastTime.current : startAt.current; setFailed((f) => { const n = new Set(f); n.delete(k); return n; }); setSel(k); setPanel(null); }}
-          speed={speed} onSpeed={setSpeed}
-          audio={audioItems} onAudio={pickAudio}
-          subs={subItems} onSub={pickSub} subScale={prefs.subScale} onSubScale={(n) => setPrefs({ subScale: n })} subBg={prefs.subBg} onSubBg={(b) => setPrefs({ subBg: b })} subDelay={subDelay} onSubDelay={setSubDelay}
-          aspect={prefs.aspect} onAspect={(a) => setPrefs({ aspect: a })} autoRotate={autoRotate} onRotate={() => setAutoRotate((v) => !v)}
-          timer={timer} onTimer={(t) => { setTimerState(t); setNote(t === "off" ? "Sleep timer off" : t === "end" ? "Will stop after this episode" : "Sleep timer: " + t + " min"); setPanel(null); }} />
+        <Panel d={panelData} a={panelActions} />
       ) : null}
     </View>
   );
