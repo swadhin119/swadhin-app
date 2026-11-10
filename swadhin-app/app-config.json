@@ -13,5 +13,23 @@
     "accent": "#ff5a36",
     "accent2": "#ffb020"
   },
-  "updatedAt": 0
+  "updatedAt": 0,
+  "slider": [],
+  "recommendedTitle": "Recommended for you",
+  "recommended": [],
+  "sliderAds": [],
+  "sliderAdEvery": 3,
+  "openingAd": {
+    "enabled": false,
+    "id": "",
+    "image": "",
+    "url": "",
+    "skipAfter": 5,
+    "frequency": "daily"
+  },
+  "announcement": {
+    "enabled": false,
+    "text": "",
+    "url": ""
+  }
 }

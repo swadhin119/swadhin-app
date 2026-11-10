@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,12 +13,21 @@ import { useAsync } from "../../lib/useAsync";
 import { Btn, ErrorBox, Loading, PosterCard, SectionHeader, Skeleton, POSTER_W } from "../../components/ui";
 import { ProviderSheet } from "../../components/ProviderSheet";
 import { openDetail } from "../../lib/nav";
-import { brand } from "../../config/remote";
+import { brand, remote } from "../../config/remote";
 
-function Hero({ posts, provider }: { posts: Post[]; provider: string }) {
+type Slide = Post & { ad?: { url: string; cta: string } };
+/** Puts admin-made ads between the movie slides (one ad after every N slides). */
+function withAds(posts: Post[]): Slide[] {
+  const ads = remote.sliderAds; if (!ads.length || !posts.length) return posts;
+  const out: Slide[] = []; let a = 0;
+  posts.forEach((p, i) => { out.push(p); if ((i + 1) % remote.sliderAdEvery === 0 || (posts.length < remote.sliderAdEvery && i === posts.length - 1)) { const ad = ads[a++ % ads.length]; out.push({ title: ad.title, link: "ad:" + ad.id + ":" + i, image: ad.image, ad: { url: ad.url, cta: ad.cta } }); } });
+  return out;
+}
+
+function Hero({ posts, provider }: { posts: Slide[]; provider: string }) {
   const { width } = useWindowDimensions();
   const h = Math.round(width * 1.15);
-  const ref = useRef<FlatList<Post>>(null);
+  const ref = useRef<FlatList<Slide>>(null);
   const [i, setI] = useState(0);
   const wl = useApp((s) => s.watchlist);
   useEffect(() => {
@@ -32,21 +41,36 @@ function Hero({ posts, provider }: { posts: Post[]; provider: string }) {
         onMomentumScrollEnd={(e) => setI(Math.round(e.nativeEvent.contentOffset.x / width))}
         getItemLayout={(_, k) => ({ length: width, offset: width * k, index: k })}
         renderItem={({ item }) => {
-          const saved = wl.some((x) => x.provider === provider && x.link === item.link);
+          if (item.ad) {
+            const url = item.ad.url;
+            return (
+              <Pressable onPress={() => { Linking.openURL(url).catch(() => {}); }} style={{ width, height: h }}>
+                <Image source={{ uri: item.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                <LinearGradient colors={["transparent", "rgba(11,11,16,.7)", C.bg]} style={StyleSheet.absoluteFill} locations={[0.35, 0.75, 1]} />
+                <View style={st.heroBody}>
+                  <Text style={st.badge}>SPONSORED</Text>
+                  {item.title ? <Text style={st.heroTitle} numberOfLines={2}>{item.title}</Text> : null}
+                  <View style={{ flexDirection: "row", marginTop: 14 }}><Btn label={item.ad.cta} icon="open-outline" onPress={() => { Linking.openURL(url).catch(() => {}); }} style={{ flex: 1 }} /></View>
+                </View>
+              </Pressable>
+            );
+          }
+          const pv = item.provider || provider;
+          const saved = wl.some((x) => x.provider === pv && x.link === item.link);
           return (
-            <Pressable onPress={() => openDetail(provider, item)} style={{ width, height: h }}>
+            <Pressable onPress={() => openDetail(pv, item)} style={{ width, height: h }}>
               <Image source={{ uri: item.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
               <LinearGradient colors={["transparent", "rgba(11,11,16,.7)", C.bg]} style={StyleSheet.absoluteFill} locations={[0.35, 0.75, 1]} />
               <View style={st.heroBody}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={st.badge}>{item.rating ? "TOP RATED • 2026" : "TRENDING NOW"}</Text>
+                  <Text style={st.badge}>{remote.slider.length ? "FEATURED" : item.rating ? "TOP RATED • 2026" : "TRENDING NOW"}</Text>
                   {item.rating ? <View style={st.rate}><Ionicons name="star" size={12} color={C.accent2} /><Text style={st.rateTxt}>{item.rating.toFixed(1)}</Text></View> : null}
                 </View>
                 <Text style={st.heroTitle} numberOfLines={2}>{item.title}</Text>
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-                  <Btn label="Watch" icon="play" onPress={() => openDetail(provider, item)} style={{ flex: 1 }} />
+                  <Btn label="Watch" icon="play" onPress={() => openDetail(pv, item)} style={{ flex: 1 }} />
                   <Btn label={saved ? "My List ✓" : "My List"} icon={saved ? "checkmark" : "add"} kind="ghost" style={{ flex: 1 }}
-                    onPress={() => toggleWatchlist({ provider, link: item.link, title: item.title, image: item.image })} />
+                    onPress={() => toggleWatchlist({ provider: pv, link: item.link, title: item.title, image: item.image })} />
                 </View>
               </View>
             </Pressable>
@@ -77,7 +101,7 @@ function PostRow({ title, provider, posts }: { title: string; provider: string; 
     <View>
       <SectionHeader title={title} />
       <FlatList horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} data={posts} keyExtractor={(p) => p.link}
-        renderItem={({ item }) => <PosterCard post={item} onPress={() => openDetail(provider, item)} />} />
+        renderItem={({ item }) => <PosterCard post={item} onPress={() => openDetail(item.provider || provider, item)} />} />
     </View>
   );
 }
@@ -95,7 +119,9 @@ export default function Home() {
   const first = cat.data?.catalog[0];
   const posts = useAsync(() => getPosts(provider, first!.filter, 1), [provider, first?.filter], !!first);
   const latest = useAsync(() => getLatest2026(provider).catch(() => NO_LATEST), [provider]);
-  const heroPosts = latest.data?.hero.length ? latest.data.hero : latest.loading ? [] : posts.data?.slice(0, 6) ?? [];
+  const manual: Post[] = remote.slider;
+  const auto = latest.data?.hero.length ? latest.data.hero : latest.loading ? [] : posts.data?.slice(0, 6) ?? [];
+  const heroPosts: Slide[] = useMemo(() => withAds(manual.length ? manual : auto), [manual, auto]);
   const names = useAsync(getProviders, []);
   const pname = names.data?.find((p) => p.value === provider)?.name || provider;
   const failed = cat.error || posts.error;
@@ -119,6 +145,7 @@ export default function Home() {
               <FlatList horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} data={watch} keyExtractor={(w) => w.provider + w.link}
                 renderItem={({ item }) => <PosterCard post={item} onPress={() => openDetail(item.provider, item)} />} />
             </View> : null}
+            {remote.recommended.length ? <PostRow title={remote.recommendedTitle} provider={provider} posts={remote.recommended} /> : null}
             <PostRow title="2026 • Latest Hindi Movies" provider={provider} posts={latest.data?.movies ?? []} />
             <PostRow title="2026 • Latest Hindi Web Series" provider={provider} posts={latest.data?.series ?? []} />
             {(cat.data?.catalog || []).slice(0, 6).map((c, k) => <CatalogRow key={provider + c.filter + k} provider={provider} cat={c} ranked={k === 0} />)}

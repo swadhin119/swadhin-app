@@ -1,7 +1,7 @@
 import "../lib/desktop";
-import { brand, dismissConfigUpdated, useConfigUpdated } from "../config/remote";
+import { brand, dismissConfigUpdated, remote, useConfigUpdated } from "../config/remote";
 import React, { useEffect } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { Stack, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -10,6 +10,7 @@ import { clearCaches } from "../engine/engine";
 import { hydrate, useApp } from "../state/store";
 import { loadDownloads } from "../engine/downloads";
 import { Loading } from "../components/ui";
+import { OpeningAd } from "../components/OpeningAd";
 
 // Koi bhi crash ho to blank screen ki jagah error text dikhao (aur retry / cache reset)
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
@@ -42,6 +43,12 @@ export default function RootLayout() {
             <Stack.Screen name="player" options={{ animation: "fade", orientation: "landscape", gestureEnabled: false }} />
           </Stack>
         )}
+        {ready ? <OpeningAd /> : null}
+        {ready && remote.announcement ? (
+          <Pressable onPress={() => { const u = remote.announcement?.url; if (u) Linking.openURL(u).catch(() => {}); }} style={{ position: "absolute", left: 0, right: 0, top: 0, backgroundColor: C.accent, paddingTop: 34, paddingBottom: 8, paddingHorizontal: 14 }}>
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12.5, textAlign: "center" }}>{remote.announcement.text}</Text>
+          </Pressable>
+        ) : null}
         {newLook ? (
           <Pressable onPress={dismissConfigUpdated} style={{ position: "absolute", left: 16, right: 16, bottom: 24, backgroundColor: C.card2, borderColor: C.accent, borderWidth: 1, borderRadius: 14, padding: 14 }}>
             <Text style={{ color: C.text, fontWeight: "800" }}>New look downloaded</Text>

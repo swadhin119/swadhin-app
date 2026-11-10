@@ -2,19 +2,40 @@
   "expo": {
     "name": "SWADHIN Admin",
     "slug": "swadhin-admin",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0b0b10",
     "android": {
       "package": "com.swadhin.admin",
-      "versionCode": 1,
-      "adaptiveIcon": { "backgroundColor": "#0b0b10", "foregroundImage": "./assets/android-icon-foreground.png" },
-      "permissions": ["INTERNET"]
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0b10",
+        "foregroundImage": "./assets/android-icon-foreground.png"
+      },
+      "permissions": [
+        "INTERNET"
+      ]
     },
-    "web": { "favicon": "./assets/favicon.png", "bundler": "metro", "output": "single" },
-    "plugins": ["expo-secure-store", ["expo-image-picker", { "photosPermission": "Choose a logo for the app" }]],
-    "splash": { "backgroundColor": "#0b0b10", "resizeMode": "contain", "image": "./assets/icon.png" }
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose a logo for the app"
+        }
+      ]
+    ],
+    "splash": {
+      "backgroundColor": "#0b0b10",
+      "resizeMode": "contain",
+      "image": "./assets/icon.png"
+    }
   }
 }

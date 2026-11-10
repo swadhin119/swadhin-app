@@ -4,6 +4,8 @@ import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
 import { clearConn, loadConn, saveConn } from "./store";
 import { deleteFile, getFile, getSha, putFile, rawUrl, startBuild, toB64, validConn, type Conn } from "./github";
+import { AdsPanel, SliderPanel } from "./Panels";
+import { EMPTY_EXTRA, isHttps, readExtra, type Extra } from "./model";
 import { COLOR_KEYS, DEFAULT_COLORS, LABELS, PRESETS, QUICK, contrast, isHex, type ColorKey, type Colors } from "./theme";
 
 const A = { bg: "#0b0b10", card: "#16161e", card2: "#1f1f2a", line: "#2a2a38", text: "#f4f4f8", sub: "#9a9ab0", accent: "#ff5a36", ok: "#35d07f", danger: "#ff4d6d" };
@@ -24,6 +26,9 @@ export default function App() {
   const [logoFile, setLogoFile] = useState("");
   const [newLogo, setNewLogo] = useState<{ b64: string; ext: string; uri: string } | null>(null);
   const [removeLogo, setRemoveLogo] = useState(false);
+  const [tab, setTab] = useState<"look" | "slider" | "ads">("look");
+  const [extra, setExtra] = useState<Extra>(EMPTY_EXTRA);
+  const [oldFiles, setOldFiles] = useState<string[]>([]);
 
   const load = useCallback(async (c: Conn) => {
     setLoading(true); setMsg(null);
@@ -34,6 +39,7 @@ export default function App() {
         setName(String(j.appName || "SWADHIN")); setTagline(String(j.tagline || "")); setLogoUrl(String(j.logoUrl || "")); setLogoFile(String(j.logoFile || ""));
         const col = { ...DEFAULT_COLORS }; for (const k of COLOR_KEYS) if (isHex(j.colors?.[k] ?? "")) col[k] = String(j.colors[k]).toLowerCase();
         setColors(col);
+        const ex = readExtra(j); setExtra(ex); setOldFiles([ex.openingAd.file, ...ex.sliderAds.map((a) => a.file)].filter(Boolean) as string[]);
       } else setMsg({ t: "ok", s: "No app-config.json in the repo yet. Edit the look below and publish to create it." });
     } catch (e: any) { setMsg({ t: "err", s: String(e?.message || e) }); } finally { setLoading(false); }
   }, []);
@@ -65,8 +71,19 @@ export default function App() {
         lFile = path; lUrl = rawUrl(conn, path, now);
         if (logoFile && logoFile !== path) await deleteFile(conn, logoFile, "admin: remove old logo").catch(() => {});
       } else if (removeLogo && logoFile) { await deleteFile(conn, logoFile, "admin: remove app logo"); lFile = ""; lUrl = ""; }
-      const cfg = { version: 1, appName: name.trim(), tagline: tagline.trim(), logoUrl: lUrl, logoFile: lFile, colors: Object.fromEntries(COLOR_KEYS.map((k) => [k, colors[k].toLowerCase()])), updatedAt: now };
+      const ex: Extra = JSON.parse(JSON.stringify(extra, (k, v) => (k === "pending" ? undefined : v)));
+      const upload = async (id: string, p: { b64: string; ext: string }) => { const path = `ads/${id}.${p.ext}`; await putFile(conn, path, p.b64, "admin: upload ad image", await getSha(conn, path)); return { file: path, url: rawUrl(conn, path, 0).replace(/\?v=0$/, "") }; };
+      if (extra.openingAd.pending) { const u = await upload(extra.openingAd.id, extra.openingAd.pending); ex.openingAd.file = u.file; ex.openingAd.image = u.url; }
+      for (let i = 0; i < extra.sliderAds.length; i++) { const a = extra.sliderAds[i]; if (a.pending) { const u = await upload(a.id, a.pending); ex.sliderAds[i].file = u.file; ex.sliderAds[i].image = u.url; } }
+      for (const a of ex.sliderAds) { if (!isHttps(a.url) || !a.image) return setMsg({ t: "err", s: `Slider ad "${a.title || a.id}" needs an image and an https:// link.` }), setBusy(""); }
+      if (ex.openingAd.enabled && !ex.openingAd.image) return setMsg({ t: "err", s: "Opening ad is on but has no image." }), setBusy("");
+      if (ex.openingAd.url && !isHttps(ex.openingAd.url)) return setMsg({ t: "err", s: "Opening ad link must start with https://" }), setBusy("");
+      const cfg = { version: 1, ...ex, appName: name.trim(), tagline: tagline.trim(), logoUrl: lUrl, logoFile: lFile, colors: Object.fromEntries(COLOR_KEYS.map((k) => [k, colors[k].toLowerCase()])), updatedAt: now };
       await putFile(conn, CONFIG_PATH, toB64(JSON.stringify(cfg, null, 2) + "\n"), "admin: update app look", await getSha(conn, CONFIG_PATH));
+      const keep = [ex.openingAd.file, ...ex.sliderAds.map((a) => a.file)].filter(Boolean) as string[];
+      for (const f of oldFiles) if (!keep.includes(f)) await deleteFile(conn, f, "admin: remove unused ad image").catch(() => {});
+      setOldFiles(keep);
+      setExtra((e) => ({ ...e, openingAd: { ...e.openingAd, image: ex.openingAd.image, file: ex.openingAd.file, pending: undefined }, sliderAds: e.sliderAds.map((a, i) => ({ ...a, image: ex.sliderAds[i].image, file: ex.sliderAds[i].file, pending: undefined })) }));
       setLogoUrl(lUrl); setLogoFile(lFile); setNewLogo(null); setRemoveLogo(false);
       setMsg({ t: "ok", s: "Published. Phones that already have the app will download the new look in the background and apply it the next time the app is opened." });
     } catch (e: any) { setMsg({ t: "err", s: String(e?.message || e) }); } finally { setBusy(""); }
@@ -100,6 +117,14 @@ export default function App() {
           <>
             <Text style={st.repo}>Editing {conn.owner}/{conn.repo} ({conn.branch}) {loading ? "· loading…" : ""}</Text>
 
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+              {([["look", "App look"], ["slider", "Slider & rows"], ["ads", "Ads & notice"]] as const).map(([k, l]) => (
+                <Pressable key={k} onPress={() => setTab(k)} style={[st.btnLite, tab === k && { backgroundColor: A.accent, borderColor: A.accent }]}><Text style={[st.btnLiteTxt, tab === k && { color: "#fff" }]}>{l}</Text></Pressable>
+              ))}
+            </View>
+            {tab === "slider" ? <SliderPanel extra={extra} set={setExtra} /> : null}
+            {tab === "ads" ? <AdsPanel extra={extra} set={setExtra} /> : null}
+            {tab === "look" ? <>
             <Text style={st.sec}>Live preview</Text>
             <Preview name={name || "App name"} tagline={tagline} logo={previewLogo} colors={colors} />
             {lowContrast ? <Text style={st.warn}>Text and background colours are very close, the app will be hard to read.</Text> : null}
@@ -147,10 +172,11 @@ export default function App() {
               ))}
             </View>
 
+            </> : null}
             {msg ? <View style={[st.msg, msg.t === "err" ? { borderColor: A.danger } : { borderColor: A.ok }]}><Text style={{ color: msg.t === "err" ? A.danger : A.ok, fontWeight: "700" }}>{msg.s}</Text></View> : null}
 
             <Pressable style={[st.btn, !!busy && { opacity: 0.6 }]} disabled={!!busy} onPress={publish}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={st.btnTxt}>Publish to app</Text>}</Pressable>
-            <Text style={st.hint}>Name, logo and colours update inside the installed app the next time it is opened (no new APK needed).</Text>
+            <Text style={st.hint}>Everything on all three tabs is published together. Changes reach the installed app the next time it is opened (no new APK needed).</Text>
 
             <Text style={st.sec}>Launcher name & icon</Text>
             <View style={st.card}>
