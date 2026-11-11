@@ -6,6 +6,12 @@
       "link": "https://v3-cinemeta.strem.io/meta/movie/tt27988879.json",
       "title": "Ramayana",
       "image": "https://images.metahub.space/poster/small/tt27988879/img"
+    },
+    {
+      "provider": "autoEmbed",
+      "link": "https://v3-cinemeta.strem.io/meta/series/tt23112594.json",
+      "title": "VisionQuest",
+      "image": "https://images.metahub.space/poster/small/tt23112594/img"
     }
   ],
   "recommendedTitle": "Recommended for you",
@@ -39,5 +45,5 @@
     "text": "#eaf6ff",
     "sub": "#8fb0c6"
   },
-  "updatedAt": 1794386705934
+  "updatedAt": 1794386730764
 }
