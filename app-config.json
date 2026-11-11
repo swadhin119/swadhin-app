@@ -31,10 +31,10 @@
     "text": "",
     "url": ""
   },
-  "appName": "Subrati",
+  "appName": "Nalanda",
   "tagline": "",
-  "logoUrl": "https://raw.githubusercontent.com/swadhin119/swadhin-app/main/app-logo.png?v=1794379981948",
-  "logoFile": "app-logo.png",
+  "logoUrl": "https://raw.githubusercontent.com/swadhin119/swadhin-app/main/app-logo.jpg?v=1794386910487",
+  "logoFile": "app-logo.jpg",
   "colors": {
     "accent": "#14b8a6",
     "accent2": "#5eead4",
@@ -45,5 +45,5 @@
     "text": "#eaf6ff",
     "sub": "#8fb0c6"
   },
-  "updatedAt": 1794386798464
+  "updatedAt": 1794386910487
 }
