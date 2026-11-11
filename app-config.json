@@ -1,6 +1,13 @@
 {
   "version": 1,
-  "slider": [],
+  "slider": [
+    {
+      "provider": "autoEmbed",
+      "link": "https://v3-cinemeta.strem.io/meta/movie/tt27988879.json",
+      "title": "Ramayana",
+      "image": "https://images.metahub.space/poster/small/tt27988879/img"
+    }
+  ],
   "recommendedTitle": "Recommended for you",
   "recommended": [],
   "sliderAds": [],
@@ -32,5 +39,5 @@
     "text": "#eaf6ff",
     "sub": "#8fb0c6"
   },
-  "updatedAt": 1794380536169
+  "updatedAt": 1794386705934
 }
