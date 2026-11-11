@@ -13,16 +13,17 @@ export interface PickItem { provider: string; link: string; title: string; image
 export interface SliderAd { id: string; image: string; url: string; title: string; cta: string }
 export interface OpeningAd { enabled: boolean; id: string; image: string; url: string; skipAfter: number; frequency: "always" | "daily" | "once" }
 export interface Announcement { enabled: boolean; text: string; url: string }
+export interface Notice { id: string; title: string; body: string; url: string; sentAt: number }
 export interface AppConfig {
   version: number; appName: string; tagline?: string; logoUrl?: string; colors: Partial<Record<ColorKey, string>>; updatedAt?: number;
   slider?: PickItem[]; recommendedTitle?: string; recommended?: PickItem[]; sliderAds?: SliderAd[]; sliderAdEvery?: number;
-  openingAd?: OpeningAd; announcement?: Announcement;
+  openingAd?: OpeningAd; announcement?: Announcement; notification?: Notice;
 }
 
 export const brand = { name: "SWADHIN", tagline: "", logoUrl: "" };
 /** Admin-managed content (manual slider, recommended row, ads, announcement). Filled by applyConfig(). */
-export const remote: { slider: PickItem[]; recommendedTitle: string; recommended: PickItem[]; sliderAds: SliderAd[]; sliderAdEvery: number; openingAd: OpeningAd | null; announcement: Announcement | null } =
-  { slider: [], recommendedTitle: "Recommended for you", recommended: [], sliderAds: [], sliderAdEvery: 3, openingAd: null, announcement: null };
+export const remote: { slider: PickItem[]; recommendedTitle: string; recommended: PickItem[]; sliderAds: SliderAd[]; sliderAdEvery: number; openingAd: OpeningAd | null; announcement: Announcement | null; notification: Notice | null } =
+  { slider: [], recommendedTitle: "Recommended for you", recommended: [], sliderAds: [], sliderAdEvery: 3, openingAd: null, announcement: null, notification: null };
 
 // Every screen that shows admin content subscribes here, so a new config appears without restarting the app.
 let ver = 0;
@@ -30,6 +31,9 @@ const rsubs = new Set<() => void>();
 const bump = () => { ver++; rsubs.forEach((f) => f()); };
 export const useRemote = (): number => useSyncExternalStore((cb) => { rsubs.add(cb); return () => rsubs.delete(cb); }, () => ver);
 /** Result of the last check, shown in Settings so it is clear what the phone actually downloaded. */
+/** Set by the notification module so this file has no native imports. */
+let notifyHook: ((n?: Notice) => void) | null = null;
+export const setNotifyHook = (f: (n?: Notice) => void) => { notifyHook = f; };
 export const status = { checking: false, at: 0, ok: false, error: "", updatedAt: 0 };
 export const useStatus = (): number => useRemote();
 const txt = (v: unknown, n: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, "").trim().slice(0, n) : "");
@@ -51,9 +55,11 @@ export function sanitize(raw: unknown): AppConfig | null {
   const openingAd: OpeningAd | undefined = oa && https(oa.image) ? { enabled: oa.enabled === true, id: txt(oa.id, 40) || "ad", image: https(oa.image), url: https(oa.url), skipAfter: Math.min(15, Math.max(0, Number(oa.skipAfter) || 0)), frequency: fr === "always" || fr === "once" ? fr : "daily" } : undefined;
   const an = r.announcement;
   const announcement: Announcement | undefined = an && txt(an.text, 160) ? { enabled: an.enabled === true, text: txt(an.text, 160), url: https(an.url) } : undefined;
+  const nt = r.notification;
+  const notification: Notice | undefined = nt && txt(nt.id, 40) && txt(nt.title, 80) ? { id: txt(nt.id, 40), title: txt(nt.title, 80), body: txt(nt.body, 300), url: https(nt.url), sentAt: Number(nt.sentAt) || 0 } : undefined;
   return { version: 1, appName: name, tagline: tag, logoUrl: logo, colors, updatedAt: Number(r.updatedAt) || 0,
     slider: picks(r.slider), recommendedTitle: txt(r.recommendedTitle, 40), recommended: picks(r.recommended), sliderAds: ads(r.sliderAds),
-    sliderAdEvery: Math.min(10, Math.max(1, Math.round(Number(r.sliderAdEvery)) || 3)), openingAd, announcement };
+    sliderAdEvery: Math.min(10, Math.max(1, Math.round(Number(r.sliderAdEvery)) || 3)), openingAd, announcement, notification };
 }
 
 /** Writes the config into the live theme object and brand info. Must run before the screens are loaded. */
@@ -64,6 +70,7 @@ export function applyContent(cfg: AppConfig) {
   remote.sliderAds = cfg.sliderAds || []; remote.sliderAdEvery = cfg.sliderAdEvery || 3;
   remote.openingAd = cfg.openingAd?.enabled ? cfg.openingAd : null;
   remote.announcement = cfg.announcement?.enabled ? cfg.announcement : null;
+  remote.notification = cfg.notification || null;
   status.updatedAt = cfg.updatedAt || 0;
   bump();
 }
@@ -87,18 +94,30 @@ export async function loadCached(): Promise<AppConfig | null> {
 export async function fetchRemote(timeoutMs: number): Promise<AppConfig | null> {
   return (await fetchWithReason(timeoutMs)).cfg;
 }
-/** Same fetch, but it says why it failed so Settings can show a useful message. */
-export async function fetchWithReason(timeoutMs: number): Promise<{ cfg: AppConfig | null; error: string }> {
-  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), timeoutMs);
+/** Same fetch, but it says why it failed so Settings can show a useful message.
+ *  raw.githubusercontent.com is cached by GitHub's CDN for up to ~5 minutes, so we also ask the GitHub API
+ *  (never cached that long) and use whichever copy is newer. */
+const parts = CONFIG_URL.match(/githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/);
+async function getOne(url: string, headers: Record<string, string>, ms: number): Promise<{ cfg: AppConfig | null; status: number; net: boolean }> {
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
   try {
-    const r = await fetch(`${CONFIG_URL}?t=${Date.now()}`, { signal: ac.signal, headers: { "Cache-Control": "no-cache" } });
-    if (r.status === 404) return { cfg: null, error: "app-config.json not found. The repository must be public and the file must be on the main branch." };
-    if (!r.ok) return { cfg: null, error: `GitHub answered with HTTP ${r.status}. Try again in a minute.` };
-    const cfg = sanitize(await r.json());
-    return cfg ? { cfg, error: "" } : { cfg: null, error: "The config file is there but could not be read (bad JSON)." };
-  } catch (e: any) {
-    return { cfg: null, error: String(e?.name) === "AbortError" ? "No answer in time. Check the internet connection." : "Could not reach GitHub. Check the internet connection." };
-  } finally { clearTimeout(t); }
+    const r = await fetch(url, { signal: ac.signal, headers: { "Cache-Control": "no-cache", Pragma: "no-cache", ...headers } });
+    if (!r.ok) return { cfg: null, status: r.status, net: false };
+    return { cfg: sanitize(await r.json()), status: 200, net: false };
+  } catch { return { cfg: null, status: 0, net: true }; } finally { clearTimeout(t); }
+}
+export async function fetchWithReason(timeoutMs: number): Promise<{ cfg: AppConfig | null; error: string }> {
+  const bust = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const jobs = [getOne(`${CONFIG_URL}?t=${bust}`, {}, timeoutMs)];
+  if (parts) jobs.push(getOne(`https://api.github.com/repos/${parts[1]}/${parts[2]}/contents/${parts[4]}?ref=${parts[3]}&t=${bust}`, { Accept: "application/vnd.github.raw+json" }, timeoutMs));
+  const res = await Promise.all(jobs);
+  const good = res.filter((x) => x.cfg).map((x) => x.cfg as AppConfig).sort((p, q) => (q.updatedAt || 0) - (p.updatedAt || 0));
+  if (good[0]) return { cfg: good[0], error: "" };
+  const raw = res[0];
+  if (raw.status === 404) return { cfg: null, error: "app-config.json not found. The repository must be public and the file must be on the main branch." };
+  if (raw.net) return { cfg: null, error: "Could not reach GitHub. Check the internet connection." };
+  if (raw.status) return { cfg: null, error: `GitHub answered with HTTP ${raw.status}. Try again in a minute.` };
+  return { cfg: null, error: "The config file is there but could not be read (bad JSON)." };
 }
 
 // "a newer look was downloaded" notice for the UI
@@ -114,7 +133,8 @@ async function refresh(cached: AppConfig | null, timeoutMs: number): Promise<App
   if (!fresh) { bump(); return cached; }
   if (!same(fresh, cached)) {
     try { await AsyncStorage.setItem(KEY, JSON.stringify(fresh)); } catch { /* ignore */ }
-    applyContent(fresh); // slider, rows, ads and the notice appear at once
+    applyContent(fresh);
+    notifyHook?.(fresh.notification); // slider, rows, ads and the notice appear at once
     if (applied && themeOf(fresh) !== themeOf(applied)) { updated = true; subs.forEach((f) => f()); } // name / logo / colours need a restart
   }
   bump();
@@ -132,7 +152,7 @@ export async function checkNow(): Promise<boolean> {
 let lastAuto = 0;
 export function autoCheck() {
   const now = Date.now();
-  if (now - lastAuto < 60000 || status.checking) return; // at most once a minute
+  if (now - lastAuto < 20000 || status.checking) return; // at most once every 20 seconds
   lastAuto = now; void checkNow();
 }
 

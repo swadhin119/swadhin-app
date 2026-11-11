@@ -66,4 +66,9 @@ export async function startBuild(c: Conn, workflowFile = "build-apk.yml") {
   const r = await call(c, `actions/workflows/${enc(workflowFile)}/dispatches`, { method: "POST", body: JSON.stringify({ ref: c.branch }) });
   if (r.status !== 204) return fail(r, "build");
 }
+/** Starts a workflow with inputs (used for the instant push notification). */
+export async function dispatchWorkflow(c: Conn, workflowFile: string, inputs: Record<string, string>) {
+  const r = await call(c, `actions/workflows/${enc(workflowFile)}/dispatches`, { method: "POST", body: JSON.stringify({ ref: c.branch, inputs }) });
+  if (r.status !== 204) return fail(r, workflowFile.includes("push") ? "build push workflow" : "build");
+}
 export const rawUrl = (c: Conn, path: string, v: number) => `https://raw.githubusercontent.com/${c.owner}/${c.repo}/${c.branch}/${path}?v=${v}`;

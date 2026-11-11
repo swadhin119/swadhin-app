@@ -3,7 +3,9 @@ export interface SliderAd { id: string; image: string; url: string; title: strin
 export interface Pending { b64: string; ext: string; uri: string }
 export interface OpeningAd { enabled: boolean; id: string; image: string; url: string; skipAfter: number; frequency: "always" | "daily" | "once"; file?: string; pending?: Pending }
 export interface Announcement { enabled: boolean; text: string; url: string }
+export interface Notice { id: string; title: string; body: string; url: string; sentAt: number }
 export interface Extra {
+  notification?: Notice;
   slider: PickItem[]; recommendedTitle: string; recommended: PickItem[];
   sliderAds: SliderAd[]; sliderAdEvery: number; openingAd: OpeningAd; announcement: Announcement;
 }
@@ -21,6 +23,7 @@ export function readExtra(j: any): Extra {
   e.sliderAds = (Array.isArray(j?.sliderAds) ? j.sliderAds : []).map((x: any) => ({ id: s(x?.id), image: s(x?.image), url: s(x?.url), title: s(x?.title), cta: s(x?.cta) || "Learn more", file: s(x?.file) || undefined })).filter((x: SliderAd) => x.id);
   e.sliderAdEvery = Number(j?.sliderAdEvery) || 3;
   const o = j?.openingAd; if (o) e.openingAd = { enabled: o.enabled === true, id: s(o.id), image: s(o.image), url: s(o.url), skipAfter: Number(o.skipAfter) || 0, frequency: o.frequency === "always" || o.frequency === "once" ? o.frequency : "daily", file: s(o.file) || undefined };
+  const nt = j?.notification; if (nt?.id) e.notification = { id: s(nt.id), title: s(nt.title), body: s(nt.body), url: s(nt.url), sentAt: Number(nt.sentAt) || 0 };
   const a = j?.announcement; if (a) e.announcement = { enabled: a.enabled === true, text: s(a.text), url: s(a.url) };
   return e;
 }

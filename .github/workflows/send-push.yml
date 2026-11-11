@@ -1,0 +1,20 @@
+name: Send push notification
+on:
+  workflow_dispatch:
+    inputs:
+      title: { description: "Title", required: true }
+      body: { description: "Message", required: false, default: "" }
+      url: { description: "Link (https://...)", required: false, default: "" }
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: node scripts/send-push.cjs
+        env:
+          FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+          URL_LINK: ${{ inputs.url }}

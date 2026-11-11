@@ -11,6 +11,11 @@ import { Btn, Empty, PosterCard, SectionHeader } from "../../components/ui";
 import { ProviderSheet } from "../../components/ProviderSheet";
 import { openDetail } from "../../lib/nav";
 import Constants from "expo-constants";
+import { Switch } from "react-native";
+import { notificationsEnabled, setNotificationsEnabled } from "../../push/notify";
+import { applyFcmPreference } from "../../push/fcm";
+import * as Notifications from "expo-notifications";
+import { Linking } from "react-native";
 import { CONFIG_URL, brand, checkNow, remote, status, useStatus } from "../../config/remote";
 
 export default function Profile() {
@@ -89,6 +94,9 @@ export default function Profile() {
 function UpdateBox() {
   useStatus();
   const [busy, setBusy] = useState(false);
+  const [notif, setNotif] = useState(true);
+  const [allowed, setAllowed] = useState(true);
+  React.useEffect(() => { void notificationsEnabled().then(setNotif); Notifications.getPermissionsAsync().then((p) => setAllowed(p.granted)).catch(() => {}); }, []);
   const when = status.updatedAt ? new Date(status.updatedAt).toLocaleString() : "never";
   const checked = status.at ? new Date(status.at).toLocaleTimeString() : "not yet";
   const picks = remote.slider.length, recs = remote.recommended.length, ads = remote.sliderAds.length;
@@ -99,6 +107,11 @@ function UpdateBox() {
         <Text style={st.sub}>Content published: {when}</Text>
         <Text style={st.sub}>Last checked: {checked}{status.ok ? " · ok" : ""}</Text>
         <Text style={st.sub}>Slider picks {picks} · Recommended {recs} · Slider ads {ads} · Opening ad {remote.openingAd ? "on" : "off"}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+          <Text style={[st.name, { flex: 1 }]}>Notifications from {brand.name}</Text>
+          <Switch value={notif} onValueChange={(v) => { setNotif(v); void setNotificationsEnabled(v); void applyFcmPreference(v); }} />
+        </View>
+        {!allowed ? <Text style={{ color: C.danger, fontSize: 12.5 }} onPress={() => Linking.openSettings().catch(() => {})}>Notifications are blocked in Android settings. Tap here to allow them.</Text> : null}
         {status.error ? <Text style={{ color: C.danger, fontSize: 12.5, marginTop: 6 }}>{status.error}</Text> : null}
         <Btn label={busy || status.checking ? "Checking…" : "Check for updates now"} icon="cloud-download-outline" style={{ marginTop: 10 }}
           onPress={async () => { setBusy(true); const ok = await checkNow(); setBusy(false); Alert.alert(ok ? "Up to date" : "Could not check", ok ? "The newest content from the admin app is now loaded. Name, logo and colours only change after closing and reopening the app." : status.error || "Try again."); }} />

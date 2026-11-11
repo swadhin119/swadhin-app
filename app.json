@@ -2,7 +2,7 @@
   "expo": {
     "name": "SWADHIN",
     "slug": "swadhin",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -19,11 +19,14 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.swadhin.app",
-      "versionCode": 8,
+      "versionCode": 9,
       "backgroundColor": "#0b0b10",
       "permissions": [
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK"
       ]
     },
     "web": {
@@ -57,6 +60,13 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#ff5a36",
+          "defaultChannel": "updates"
         }
       ]
     ],

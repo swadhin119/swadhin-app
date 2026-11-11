@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { bootConfig } from "./config/remote";
+import "./push/notify"; // defines the background job at app start
 
 export default function Boot() {
   const [App, setApp] = useState<React.ComponentType | null>(null);

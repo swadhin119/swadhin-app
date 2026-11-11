@@ -6,6 +6,8 @@ on:
     paths-ignore:
       - app-config.json
       - app-logo.*
+      - .github/workflows/send-push.yml
+      - scripts/send-push.cjs
       - admin-app/**
       - desktop/**
       - '**.md'
@@ -19,6 +21,14 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - run: npm install
+      - name: Instant push (only if google-services.json is in the repo)
+        run: |
+          if [ -f google-services.json ]; then
+            npm install --no-save @react-native-firebase/app@27.1.1 @react-native-firebase/messaging@27.1.1
+            node scripts/enable-fcm.cjs
+          else
+            echo "No google-services.json: building without Firebase push"
+          fi
       - run: node scripts/apply-config.cjs
       - run: npx expo prebuild --platform android --no-install
       - run: cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon

@@ -11,6 +11,8 @@ import { hydrate, useApp } from "../state/store";
 import { loadDownloads } from "../engine/downloads";
 import { Loading } from "../components/ui";
 import { OpeningAd } from "../components/OpeningAd";
+import { listenForTaps, registerBackgroundCheck, setupNotifications } from "../push/notify";
+import { initFcm } from "../push/fcm";
 
 // Koi bhi crash ho to blank screen ki jagah error text dikhao (aur retry / cache reset)
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
@@ -36,8 +38,12 @@ export default function RootLayout() {
   useEffect(() => { void hydrate(); void loadDownloads(); }, []);
   useEffect(() => {
     autoCheck();
+    void setupNotifications().then(() => { void registerBackgroundCheck(); void initFcm(); });
+    const stopTaps = listenForTaps();
     const sub = AppState.addEventListener("change", (s) => { if (s === "active") autoCheck(); });
-    return () => sub.remove();
+    // while the app is open, look for new content every 2 minutes
+    const iv = setInterval(() => { if (AppState.currentState === "active") autoCheck(); }, 120000);
+    return () => { sub.remove(); clearInterval(iv); stopTaps(); };
   }, []);
   return (
     <SafeAreaProvider>

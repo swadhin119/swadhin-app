@@ -100,6 +100,31 @@ export function SliderPanel({ extra, set }: { extra: Extra; set: Set }) {
 
 const FREQ: { v: OpeningAd["frequency"]; l: string }[] = [{ v: "always", l: "Every launch" }, { v: "daily", l: "Once a day" }, { v: "once", l: "Only once" }];
 
+/** Compose and send a notification to every phone that has the app. */
+export function NotifyPanel({ last, onSend, busy }: { last?: { title: string; body: string; sentAt: number }; onSend(title: string, body: string, url: string, push: boolean): void; busy: boolean }) {
+  const [title, setTitle] = useState(""); const [body, setBody] = useState(""); const [url, setUrl] = useState(""); const [push, setPush] = useState(false);
+  const bad = !title.trim() || (!!url && !isHttps(url));
+  return (
+    <View>
+      <Text style={st.sec}>Send a notification</Text>
+      <View style={st.card}>
+        <Text style={st.lbl}>Title</Text>
+        <TextInput style={st.input} value={title} maxLength={80} onChangeText={setTitle} placeholder="New movies added!" placeholderTextColor={A.sub} />
+        <Text style={[st.lbl, { marginTop: 10 }]}>Message</Text>
+        <TextInput style={[st.input, { height: 90, textAlignVertical: "top", paddingTop: 10 }]} multiline value={body} maxLength={300} onChangeText={setBody} placeholder="Watch the latest 2026 Hindi movies now." placeholderTextColor={A.sub} />
+        <Text style={[st.lbl, { marginTop: 10 }]}>Link when tapped (optional, https://…)</Text>
+        <TextInput style={[st.input, url && !isHttps(url) && { borderColor: A.danger }]} value={url} autoCapitalize="none" onChangeText={setUrl} placeholder="https://" placeholderTextColor={A.sub} />
+        <View style={[st.line, { marginTop: 14 }]}><Text style={[st.lbl, { flex: 1, marginBottom: 0 }]}>Also send instant push (needs Firebase setup)</Text><Switch value={push} onValueChange={setPush} /></View>
+        <Text style={st.hint}>Without instant push, phones show the notification within about 15 minutes (or at once if the app is open). With Firebase set up, it reaches phones in under a minute even if the app is closed. See PUSH-SETUP.md.</Text>
+        <Pressable disabled={bad || busy} onPress={() => { onSend(title.trim(), body.trim(), url.trim(), push); setTitle(""); setBody(""); setUrl(""); }} style={[st.go, { marginTop: 14, height: 48, borderRadius: 24 }, (bad || busy) && { opacity: 0.5 }]}>
+          {busy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "800" }}>Send notification</Text>}
+        </Pressable>
+      </View>
+      {last ? <><Text style={st.sec}>Last sent</Text><View style={st.card}><Text style={st.t}>{last.title}</Text>{last.body ? <Text style={st.s}>{last.body}</Text> : null}<Text style={[st.s, { marginTop: 6 }]}>{new Date(last.sentAt).toLocaleString()}</Text></View></> : null}
+    </View>
+  );
+}
+
 export function AdsPanel({ extra, set }: { extra: Extra; set: Set }) {
   const o = extra.openingAd; const an = extra.announcement;
   const setO = (p: Partial<OpeningAd>) => set((e) => ({ ...e, openingAd: { ...e.openingAd, ...p } }));

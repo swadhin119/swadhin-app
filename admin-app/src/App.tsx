@@ -3,9 +3,9 @@ import { ActivityIndicator, Alert, Image, Linking, Platform, Pressable, ScrollVi
 import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
 import { clearConn, loadConn, saveConn } from "./store";
-import { deleteFile, getFile, getSha, putFile, rawUrl, startBuild, toB64, validConn, type Conn } from "./github";
-import { AdsPanel, SliderPanel } from "./Panels";
-import { EMPTY_EXTRA, isHttps, readExtra, type Extra } from "./model";
+import { deleteFile, dispatchWorkflow, getFile, getSha, putFile, rawUrl, startBuild, toB64, validConn, type Conn } from "./github";
+import { AdsPanel, NotifyPanel, SliderPanel } from "./Panels";
+import { EMPTY_EXTRA, isHttps, newId, readExtra, type Extra } from "./model";
 import { COLOR_KEYS, DEFAULT_COLORS, LABELS, PRESETS, QUICK, contrast, isHex, type ColorKey, type Colors } from "./theme";
 
 const A = { bg: "#0b0b10", card: "#16161e", card2: "#1f1f2a", line: "#2a2a38", text: "#f4f4f8", sub: "#9a9ab0", accent: "#ff5a36", ok: "#35d07f", danger: "#ff4d6d" };
@@ -26,7 +26,7 @@ export default function App() {
   const [logoFile, setLogoFile] = useState("");
   const [newLogo, setNewLogo] = useState<{ b64: string; ext: string; uri: string } | null>(null);
   const [removeLogo, setRemoveLogo] = useState(false);
-  const [tab, setTab] = useState<"look" | "slider" | "ads">("look");
+  const [tab, setTab] = useState<"look" | "slider" | "ads" | "notify">("look");
   const [extra, setExtra] = useState<Extra>(EMPTY_EXTRA);
   const [oldFiles, setOldFiles] = useState<string[]>([]);
 
@@ -89,6 +89,23 @@ export default function App() {
     } catch (e: any) { setMsg({ t: "err", s: String(e?.message || e) }); } finally { setBusy(""); }
   };
 
+  /** Puts a notification into the live config (read by every phone) and, if asked, also starts the instant push. */
+  const sendNotice = async (title: string, body: string, url: string, push: boolean) => {
+    if (!conn) return;
+    setBusy("Sending…"); setMsg(null);
+    try {
+      const cur = await getFile(conn, CONFIG_PATH);
+      const j = cur ? JSON.parse(cur.text) : {};
+      const n = { id: newId(), title, body, url, sentAt: Date.now() };
+      j.notification = n; j.updatedAt = Date.now();
+      await putFile(conn, CONFIG_PATH, toB64(JSON.stringify(j, null, 2) + "\n"), "admin: notification", cur?.sha);
+      setExtra((e) => ({ ...e, notification: n }));
+      let pushMsg = "";
+      if (push) { try { await dispatchWorkflow(conn, "send-push.yml", { title, body, url }); pushMsg = " Instant push started (check Actions > Send push notification if it does not arrive)."; } catch (e: any) { pushMsg = " Instant push could NOT be started: " + String(e?.message || e); } }
+      setMsg({ t: "ok", s: "Notification sent. Phones with the app show it within about 15 minutes, or right away if the app is open." + pushMsg });
+    } catch (e: any) { setMsg({ t: "err", s: String(e?.message || e) }); } finally { setBusy(""); }
+  };
+
   /** Fetches the config the way the phones do (public raw URL, no token), so a private repo is spotted at once. */
   const verify = async () => {
     if (!conn) return;
@@ -134,12 +151,13 @@ export default function App() {
             <Text style={st.repo}>Editing {conn.owner}/{conn.repo} ({conn.branch}) {loading ? "· loading…" : ""}</Text>
 
             <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-              {([["look", "App look"], ["slider", "Slider & rows"], ["ads", "Ads & notice"]] as const).map(([k, l]) => (
+              {([["look", "App look"], ["slider", "Slider & rows"], ["ads", "Ads & notice"], ["notify", "Notify"]] as const).map(([k, l]) => (
                 <Pressable key={k} onPress={() => setTab(k)} style={[st.btnLite, tab === k && { backgroundColor: A.accent, borderColor: A.accent }]}><Text style={[st.btnLiteTxt, tab === k && { color: "#fff" }]}>{l}</Text></Pressable>
               ))}
             </View>
             {tab === "slider" ? <SliderPanel extra={extra} set={setExtra} /> : null}
             {tab === "ads" ? <AdsPanel extra={extra} set={setExtra} /> : null}
+            {tab === "notify" ? <NotifyPanel busy={!!busy} last={extra.notification} onSend={sendNotice} /> : null}
             {tab === "look" ? <>
             <Text style={st.sec}>Live preview</Text>
             <Preview name={name || "App name"} tagline={tagline} logo={previewLogo} colors={colors} />
