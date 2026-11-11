@@ -19,12 +19,13 @@
   "sliderAds": [],
   "sliderAdEvery": 3,
   "openingAd": {
-    "enabled": false,
-    "id": "",
-    "image": "",
-    "url": "",
+    "enabled": true,
+    "id": "mwbvs8oj08z",
+    "image": "https://raw.githubusercontent.com/swadhin119/swadhin-app/main/ads/mwbvs8oj08z.png",
+    "url": "https://www.youtube.com",
     "skipAfter": 5,
-    "frequency": "daily"
+    "frequency": "always",
+    "file": "ads/mwbvs8oj08z.png"
   },
   "announcement": {
     "enabled": false,
@@ -45,5 +46,5 @@
     "text": "#eaf6ff",
     "sub": "#8fb0c6"
   },
-  "updatedAt": 1794386910487
+  "updatedAt": 1794387202088
 }
