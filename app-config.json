@@ -30,8 +30,8 @@
   "logoUrl": "https://raw.githubusercontent.com/swadhin119/swadhin-app/main/app-logo.png?v=1794379981948",
   "logoFile": "app-logo.png",
   "colors": {
-    "accent": "#ff5a36",
-    "accent2": "#facc15",
+    "accent": "#14b8a6",
+    "accent2": "#22c55e",
     "bg": "#0b0b10",
     "card": "#16161e",
     "card2": "#1f1f2a",
@@ -39,5 +39,5 @@
     "text": "#f4f4f8",
     "sub": "#9a9ab0"
   },
-  "updatedAt": 1794379981948
+  "updatedAt": 1794380061081
 }
