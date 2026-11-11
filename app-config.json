@@ -1,13 +1,6 @@
 {
   "version": 1,
-  "slider": [
-    {
-      "provider": "autoEmbed",
-      "link": "https://v3-cinemeta.strem.io/meta/movie/tt27988879.json",
-      "title": "Ramayana: Rise of a Legend",
-      "image": "https://images.metahub.space/poster/small/tt27988879/img"
-    }
-  ],
+  "slider": [],
   "recommendedTitle": "Recommended for you",
   "recommended": [],
   "sliderAds": [],
@@ -31,13 +24,13 @@
   "logoFile": "app-logo.png",
   "colors": {
     "accent": "#14b8a6",
-    "accent2": "#22c55e",
-    "bg": "#0b0b10",
-    "card": "#16161e",
-    "card2": "#1f1f2a",
-    "line": "#2a2a38",
-    "text": "#f4f4f8",
-    "sub": "#9a9ab0"
+    "accent2": "#5eead4",
+    "bg": "#06121a",
+    "card": "#0c1f2c",
+    "card2": "#122c3d",
+    "line": "#1d3b50",
+    "text": "#eaf6ff",
+    "sub": "#8fb0c6"
   },
-  "updatedAt": 1794380129077
+  "updatedAt": 1794380195300
 }
