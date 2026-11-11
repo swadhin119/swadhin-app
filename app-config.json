@@ -25,10 +25,10 @@
     "text": "",
     "url": ""
   },
-  "appName": "SWADHIN",
+  "appName": "SWA",
   "tagline": "",
-  "logoUrl": "",
-  "logoFile": "",
+  "logoUrl": "https://raw.githubusercontent.com/swadhin119/swadhin-app/main/app-logo.png?v=1794379981948",
+  "logoFile": "app-logo.png",
   "colors": {
     "accent": "#ff5a36",
     "accent2": "#facc15",
@@ -39,5 +39,5 @@
     "text": "#f4f4f8",
     "sub": "#9a9ab0"
   },
-  "updatedAt": 1794341873432
+  "updatedAt": 1794379981948
 }
