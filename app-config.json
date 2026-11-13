@@ -19,7 +19,7 @@
   "sliderAds": [],
   "sliderAdEvery": 3,
   "openingAd": {
-    "enabled": true,
+    "enabled": false,
     "id": "mwbvs8oj08z",
     "image": "https://raw.githubusercontent.com/swadhin119/swadhin-app/main/ads/mwbvs8oj08z.png",
     "url": "https://www.youtube.com",
@@ -32,9 +32,9 @@
     "text": "",
     "url": ""
   },
-  "appName": "Nalanda",
+  "appName": "Deepaka",
   "tagline": "",
-  "logoUrl": "https://raw.githubusercontent.com/swadhin119/swadhin-app/main/app-logo.jpg?v=1794386910487",
+  "logoUrl": "https://raw.githubusercontent.com/swadhin119/swadhin-app/main/app-logo.jpg?v=1794560630353",
   "logoFile": "app-logo.jpg",
   "colors": {
     "accent": "#14b8a6",
@@ -46,5 +46,5 @@
     "text": "#eaf6ff",
     "sub": "#8fb0c6"
   },
-  "updatedAt": 1794387202088
+  "updatedAt": 1794560630353
 }
