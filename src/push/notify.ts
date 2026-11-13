@@ -6,9 +6,7 @@
 //     so nobody gets the same message twice.
 import { Linking, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
-import * as TaskManager from "expo-task-manager";
-import * as BackgroundTask from "expo-background-task";
+import type * as NotificationsT from "expo-notifications";
 import { fetchWithReason, setNotifyHook, type Notice } from "../config/remote";
 
 export const TASK = "swadhin-notify-check";
@@ -17,6 +15,10 @@ export const FCM_FLAG = "notify.fcmActive";
 export const OFF_FLAG = "notify.off";
 export const notificationsEnabled = async () => (await AsyncStorage.getItem(OFF_FLAG)) !== "1";
 export const setNotificationsEnabled = (on: boolean) => (on ? AsyncStorage.removeItem(OFF_FLAG) : AsyncStorage.setItem(OFF_FLAG, "1"));
+// The native modules are loaded only when needed and every call is guarded, so a problem here can never stop the app from opening.
+const NT = (): typeof NotificationsT => require("expo-notifications");
+const TM = (): typeof import("expo-task-manager") => require("expo-task-manager");
+const BT = (): typeof import("expo-background-task") => require("expo-background-task");
 const MAX_AGE = 3 * 24 * 3600 * 1000; // an old notice found on a fresh install is not worth a buzz
 
 let ready = false;
@@ -24,10 +26,10 @@ export async function setupNotifications(): Promise<void> {
   if (Platform.OS === "web" || ready) return;
   ready = true;
   try {
-    Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }) });
-    await Notifications.setNotificationChannelAsync("updates", { name: "Updates & announcements", importance: Notifications.AndroidImportance.HIGH, vibrationPattern: [0, 200, 120, 200], lightColor: "#ff5a36" });
-    const cur = await Notifications.getPermissionsAsync();
-    if (!cur.granted && cur.canAskAgain) await Notifications.requestPermissionsAsync();
+    NT().setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }) });
+    await NT().setNotificationChannelAsync("updates", { name: "Updates & announcements", importance: NT().AndroidImportance.HIGH, vibrationPattern: [0, 200, 120, 200], lightColor: "#ff5a36" });
+    const cur = await NT().getPermissionsAsync();
+    if (!cur.granted && cur.canAskAgain) await NT().requestPermissionsAsync();
   } catch { /* notifications are a bonus, never block the app */ }
 }
 
@@ -41,9 +43,9 @@ export async function maybeNotify(n: Notice | null | undefined): Promise<boolean
     if (seen === n.id) return false;
     await AsyncStorage.setItem(SEEN, n.id);
     if (n.sentAt && Date.now() - n.sentAt > MAX_AGE) return false;
-    const perm = await Notifications.getPermissionsAsync();
+    const perm = await NT().getPermissionsAsync();
     if (!perm.granted) return false;
-    await Notifications.scheduleNotificationAsync({ identifier: n.id, content: { title: n.title, body: n.body || undefined, data: { url: n.url }, ...(Platform.OS === "android" ? { channelId: "updates" } : {}) } as any, trigger: null });
+    await NT().scheduleNotificationAsync({ identifier: n.id, content: { title: n.title, body: n.body || undefined, data: { url: n.url }, ...(Platform.OS === "android" ? { channelId: "updates" } : {}) } as any, trigger: null });
     return true;
   } catch { return false; }
 }
@@ -51,35 +53,44 @@ export async function maybeNotify(n: Notice | null | undefined): Promise<boolean
 /** Tapping a notification opens its link (if the admin added one). */
 export function listenForTaps(): () => void {
   if (Platform.OS === "web") return () => {};
-  const open = (r: Notifications.NotificationResponse | null) => {
-    const u = (r?.notification.request.content.data as any)?.url;
-    if (typeof u === "string" && /^https:\/\//i.test(u)) Linking.openURL(u).catch(() => {});
-  };
-  Notifications.getLastNotificationResponseAsync().then(open).catch(() => {});
-  const sub = Notifications.addNotificationResponseReceivedListener(open);
-  return () => sub.remove();
+  try {
+    const open = (r: NotificationsT.NotificationResponse | null) => {
+      const u = (r?.notification.request.content.data as any)?.url;
+      if (typeof u === "string" && /^https:\/\//i.test(u)) Linking.openURL(u).catch(() => {});
+    };
+    NT().getLastNotificationResponseAsync().then(open).catch(() => {});
+    const sub = NT().addNotificationResponseReceivedListener(open);
+    return () => { try { sub.remove(); } catch { /* ignore */ } };
+  } catch { return () => {}; }
 }
 
 setNotifyHook((n) => { void maybeNotify(n); });
 
-// Background job: Android runs it roughly every 15 minutes (the system decides exactly when) even if the app is closed.
-if (Platform.OS !== "web") {
+/** Background job: Android runs it roughly every 15 minutes (the system decides exactly when) even if the app is closed. */
+export function defineBackgroundJob(): void {
+  if (Platform.OS === "web") return;
   try {
-    TaskManager.defineTask(TASK, async () => {
+    TM().defineTask(TASK, async () => {
       try {
         const { cfg } = await fetchWithReason(15000);
         if (cfg?.notification) await maybeNotify(cfg.notification);
-        return BackgroundTask.BackgroundTaskResult.Success;
-      } catch { return BackgroundTask.BackgroundTaskResult.Failed; }
+        return BT().BackgroundTaskResult.Success;
+      } catch { return BT().BackgroundTaskResult.Failed; }
     });
   } catch { /* already defined */ }
 }
 export async function registerBackgroundCheck(): Promise<void> {
   if (Platform.OS === "web") return;
   try {
-    const st = await BackgroundTask.getStatusAsync();
-    if (st !== BackgroundTask.BackgroundTaskStatus.Available) return;
-    if (await TaskManager.isTaskRegisteredAsync(TASK)) return;
-    await BackgroundTask.registerTaskAsync(TASK, { minimumInterval: 15 });
+    const st = await BT().getStatusAsync();
+    if (st !== BT().BackgroundTaskStatus.Available) return;
+    if (await TM().isTaskRegisteredAsync(TASK)) return;
+    await BT().registerTaskAsync(TASK, { minimumInterval: 15 });
   } catch { /* ignore */ }
+}
+
+/** Used by Settings and the instant-push module. */
+export async function permissionGranted(): Promise<boolean> { try { return (await NT().getPermissionsAsync()).granted; } catch { return true; } }
+export async function showNow(title: string, body: string, url: string): Promise<void> {
+  try { await NT().scheduleNotificationAsync({ content: { title, body: body || undefined, data: { url }, ...(Platform.OS === "android" ? { channelId: "updates" } : {}) } as any, trigger: null }); } catch { /* ignore */ }
 }

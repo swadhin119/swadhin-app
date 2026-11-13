@@ -3,8 +3,7 @@
 // Without Firebase this file does nothing and the normal check in notify.ts is used.
 import { Linking, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
-import { FCM_FLAG, notificationsEnabled } from "./notify";
+import { FCM_FLAG, notificationsEnabled, showNow } from "./notify";
 
 const TOPIC = "all";
 const open = (m: any) => { const u = m?.data?.url; if (typeof u === "string" && /^https:\/\//i.test(u)) Linking.openURL(u).catch(() => {}); };
@@ -26,7 +25,7 @@ export async function initFcm(): Promise<void> {
     m.onMessage(async (msg: any) => {
       if (!(await notificationsEnabled())) return;
       const n = msg?.notification; if (!n?.title) return;
-      await Notifications.scheduleNotificationAsync({ content: { title: n.title, body: n.body || undefined, data: { url: msg?.data?.url || "" }, ...({ channelId: "updates" } as any) }, trigger: null });
+      await showNow(n.title, n.body || "", msg?.data?.url || "");
     });
     m.onNotificationOpenedApp(open);
     m.getInitialNotification().then(open).catch(() => {});

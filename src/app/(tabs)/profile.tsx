@@ -12,9 +12,8 @@ import { ProviderSheet } from "../../components/ProviderSheet";
 import { openDetail } from "../../lib/nav";
 import Constants from "expo-constants";
 import { Switch } from "react-native";
-import { notificationsEnabled, setNotificationsEnabled } from "../../push/notify";
+import { notificationsEnabled, permissionGranted, setNotificationsEnabled } from "../../push/notify";
 import { applyFcmPreference } from "../../push/fcm";
-import * as Notifications from "expo-notifications";
 import { Linking } from "react-native";
 import { CONFIG_URL, brand, checkNow, remote, status, useStatus } from "../../config/remote";
 
@@ -96,7 +95,7 @@ function UpdateBox() {
   const [busy, setBusy] = useState(false);
   const [notif, setNotif] = useState(true);
   const [allowed, setAllowed] = useState(true);
-  React.useEffect(() => { void notificationsEnabled().then(setNotif); Notifications.getPermissionsAsync().then((p) => setAllowed(p.granted)).catch(() => {}); }, []);
+  React.useEffect(() => { void notificationsEnabled().then(setNotif); void permissionGranted().then(setAllowed); }, []);
   const when = status.updatedAt ? new Date(status.updatedAt).toLocaleString() : "never";
   const checked = status.at ? new Date(status.at).toLocaleTimeString() : "not yet";
   const picks = remote.slider.length, recs = remote.recommended.length, ads = remote.sliderAds.length;
